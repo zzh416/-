@@ -18,7 +18,39 @@ export interface CollectionPage {
   items: Collection[]
 }
 
-export type SourceFormat = 'PASTED_TEXT' | 'MARKDOWN' | 'TXT_FILE' | 'MARKDOWN_FILE'
+export type SourceFormat =
+  | 'PASTED_TEXT'
+  | 'MARKDOWN'
+  | 'TXT_FILE'
+  | 'MARKDOWN_FILE'
+  | 'IMAGE'
+  | 'PDF'
+  | 'DOCX'
+  | 'DOC'
+  | 'WEB_PAGE'
+
+export type AssetStatus =
+  | 'QUEUED'
+  | 'PROCESSING'
+  | 'READY'
+  | 'PARTIAL_SUCCESS'
+  | 'WAITING_FOR_CONFIGURATION'
+  | 'FAILED'
+
+export interface IngestionJob {
+  id: string
+  status: 'QUEUED' | 'PROCESSING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'WAITING_FOR_CONFIGURATION' | 'FAILED'
+  stage: string
+  processedUnits: number
+  totalUnits: number | null
+  retryCount: number
+  errorCode: string | null
+  errorMessage: string | null
+  createdAt: string
+  updatedAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
 
 export interface AssetSummary {
   id: string
@@ -26,8 +58,13 @@ export interface AssetSummary {
   title: string
   sourceFormat: SourceFormat
   originalFilename: string | null
-  status: 'READY'
+  sourceUrl: string | null
+  contentType: string | null
+  byteSize: number | null
+  fetchedAt: string | null
+  status: AssetStatus
   currentVersion: number
+  job: IngestionJob | null
   createdAt: string
   updatedAt: string
 }
@@ -162,6 +199,18 @@ export const uploadTextAsset = (collectionId: string, file: File) => {
     body: form,
   })
 }
+
+export const createUrlAsset = (
+  collectionId: string,
+  input: { url: string; title?: string },
+) =>
+  apiRequest<AssetSummary>(
+    `/api/v1/collections/${collectionId}/assets/url`,
+    idempotentCreate(input),
+  )
+
+export const retryAsset = (assetId: string) =>
+  apiRequest<AssetSummary>(`/api/v1/assets/${assetId}/retry`, { method: 'POST' })
 
 export const reviseAsset = (
   assetId: string,

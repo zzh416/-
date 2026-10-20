@@ -171,6 +171,25 @@ textarea {
   min-height: 8.5rem;
 }
 
+.asset-meta {
+  display: grid;
+  justify-items: start;
+  gap: 0.5rem;
+}
+
+.source-metadata {
+  margin: 0.8rem 0 0 !important;
+  overflow-wrap: anywhere;
+}
+
+.asset-state-alert {
+  margin-top: 1rem;
+}
+
+.form-hint {
+  margin-bottom: 1rem;
+}
+
 .question-search {
   max-width: 44rem;
   margin-bottom: 1.25rem;
@@ -325,5 +344,21 @@ textarea {
 
   .question-actions .ant-btn {
     padding-inline: 0.4rem;
+  }
+
+  .asset-drawer .ant-drawer-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .asset-drawer .ant-drawer-header-title,
+  .asset-drawer .ant-drawer-extra {
+    flex: 1 0 100%;
+    width: 100%;
+  }
+
+  .asset-drawer .ant-drawer-extra {
+    margin-top: 0.75rem;
+    margin-inline-start: 0;
   }
 }

@@ -26,6 +26,7 @@ import {
   createCollection,
   createQuestion,
   createTextAsset,
+  createUrlAsset,
   deleteAsset,
   deleteCollection,
   deleteNote,
@@ -36,11 +37,13 @@ import {
   fetchHealth,
   fetchQuestions,
   reviseAsset,
+  retryAsset,
   updateQuestion,
   uploadTextAsset,
   upsertAnswer,
   upsertNote,
   type CollectionPurpose,
+  type AssetSummary,
   type Question,
 } from './api/client'
 import { SafeMarkdown } from './components/SafeMarkdown'
@@ -65,17 +68,66 @@ interface ContentForm {
   content: string
 }
 
+interface UrlForm {
+  url: string
+  title?: string
+}
+
 const sourceLabels: Record<string, string> = {
   PASTED_TEXT: '粘贴文字',
   MARKDOWN: 'Markdown',
   TXT_FILE: 'TXT 文件',
   MARKDOWN_FILE: 'Markdown 文件',
+  IMAGE: '图片',
+  PDF: 'PDF',
+  DOCX: 'Word 文档',
+  DOC: '旧版 Word 文档',
+  WEB_PAGE: '网页',
 }
+
+const statusLabels: Record<string, string> = {
+  QUEUED: '等待解析',
+  PROCESSING: '正在解析',
+  READY: '已完成',
+  PARTIAL_SUCCESS: '部分完成',
+  WAITING_FOR_CONFIGURATION: '等待配置',
+  FAILED: '解析失败',
+}
+
+const stageLabels: Record<string, string> = {
+  STORED: '文件已保存',
+  FETCHING: '正在抓取网页',
+  EXTRACTING: '正在提取文字',
+  OCR: '正在识别图片',
+  CONFIGURATION: '等待 OCR 配置',
+  COMPLETE: '解析完成',
+  FAILED: '解析失败',
+}
+
+const statusColors: Record<string, string> = {
+  QUEUED: 'default',
+  PROCESSING: 'processing',
+  READY: 'success',
+  PARTIAL_SUCCESS: 'warning',
+  WAITING_FOR_CONFIGURATION: 'warning',
+  FAILED: 'error',
+}
+
+const isPendingAsset = (asset: AssetSummary) =>
+  asset.status === 'QUEUED' || asset.status === 'PROCESSING'
+
+const canRetryAsset = (asset: AssetSummary) =>
+  Boolean(
+    asset.job &&
+      ['FAILED', 'WAITING_FOR_CONFIGURATION', 'PARTIAL_SUCCESS'].includes(asset.job.status) &&
+      asset.job.retryCount < 3,
+  )
 
 function App() {
   const queryClient = useQueryClient()
   const [collectionForm] = Form.useForm<CollectionForm>()
   const [assetForm] = Form.useForm<AssetForm>()
+  const [urlForm] = Form.useForm<UrlForm>()
   const [questionForm] = Form.useForm<QuestionForm>()
   const [contentForm] = Form.useForm<ContentForm>()
   const [messageApi, messageContext] = message.useMessage()
@@ -83,6 +135,7 @@ function App() {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null)
   const [isCreateCollectionOpen, setCreateCollectionOpen] = useState(false)
   const [isImportOpen, setImportOpen] = useState(false)
+  const [isUrlImportOpen, setUrlImportOpen] = useState(false)
   const [isQuestionOpen, setQuestionOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<'question' | 'answer' | 'note'>('question')
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null)
@@ -109,11 +162,15 @@ function App() {
     queryKey: ['assets', activeCollectionId],
     queryFn: () => fetchAssets(activeCollectionId!),
     enabled: Boolean(activeCollectionId),
+    refetchInterval: (query) =>
+      query.state.data?.items.some(isPendingAsset) ? 2_000 : false,
   })
   const assetDetail = useQuery({
     queryKey: ['asset', selectedAssetId],
     queryFn: () => fetchAsset(selectedAssetId!),
     enabled: Boolean(selectedAssetId),
+    refetchInterval: (query) =>
+      query.state.data && isPendingAsset(query.state.data) ? 2_000 : false,
   })
   const questions = useQuery({
     queryKey: ['questions', activeCollectionId, search, page],
@@ -168,7 +225,31 @@ function App() {
       uploadTextAsset(collectionId, file),
     onSuccess: async () => {
       await refreshAssets()
-      messageApi.success('文件已导入')
+      messageApi.success('文件已接收；需要解析的资料会在后台处理')
+    },
+    onError: (error) => messageApi.error(error.message),
+  })
+  const urlImport = useMutation({
+    mutationFn: ({ collectionId, values }: { collectionId: string; values: UrlForm }) =>
+      createUrlAsset(collectionId, {
+        url: values.url.trim(),
+        title: values.title?.trim() || undefined,
+      }),
+    onSuccess: async () => {
+      await refreshAssets()
+      setUrlImportOpen(false)
+      messageApi.success('网页链接已提交，正在后台提取正文')
+    },
+    onError: (error) => messageApi.error(error.message),
+  })
+  const assetRetry = useMutation({
+    mutationFn: retryAsset,
+    onSuccess: async (_data, assetId) => {
+      await Promise.all([
+        refreshAssets(),
+        queryClient.invalidateQueries({ queryKey: ['asset', assetId] }),
+      ])
+      messageApi.success('已重新提交解析任务')
     },
     onError: (error) => messageApi.error(error.message),
   })
@@ -284,14 +365,24 @@ function App() {
     <section aria-label="资料">
       <div className="workspace-toolbar">
         <div>
-          <Typography.Title level={2}>文字资料</Typography.Title>
-          <Typography.Text type="secondary">支持粘贴文字、TXT 和 Markdown，单份上限 1 MiB</Typography.Text>
+          <Typography.Title level={2}>资料导入</Typography.Title>
+          <Typography.Text type="secondary">
+            支持文字、图片、PDF、Word 和公开静态网页；文件上限 25 MiB，PDF 最多 100 页
+          </Typography.Text>
         </div>
         <Space wrap>
           <Upload
-            accept=".txt,.md,.markdown"
+            accept=".txt,.md,.markdown,.png,.jpg,.jpeg,.pdf,.docx,.doc"
             showUploadList={false}
             beforeUpload={(file) => {
+              if (file.size > 25 * 1024 * 1024) {
+                messageApi.error('文件不能超过 25 MiB')
+                return Upload.LIST_IGNORE
+              }
+              if (/\.(png|jpe?g)$/i.test(file.name) && file.size > 10 * 1024 * 1024) {
+                messageApi.error('OCR 图片不能超过 10 MiB')
+                return Upload.LIST_IGNORE
+              }
               if (activeCollectionId) {
                 fileImport.mutate({ collectionId: activeCollectionId, file })
               }
@@ -300,6 +391,7 @@ function App() {
           >
             <Button loading={fileImport.isPending}>导入文件</Button>
           </Upload>
+          <Button onClick={() => setUrlImportOpen(true)}>导入网页链接</Button>
           <Button type="primary" onClick={() => setImportOpen(true)}>
             粘贴文字
           </Button>
@@ -310,7 +402,7 @@ function App() {
         <Alert type="error" showIcon title="资料加载失败" description={assets.error.message} />
       )}
       {assets.data?.items.length === 0 && (
-        <Empty description="这个资料库还没有文字资料">
+        <Empty description="这个资料库还没有资料">
           <Button type="primary" onClick={() => setImportOpen(true)}>
             添加第一份资料
           </Button>
@@ -322,12 +414,43 @@ function App() {
             key={asset.id}
             hoverable
             title={asset.title}
-            extra={<Tag>{sourceLabels[asset.sourceFormat]}</Tag>}
+            extra={
+              <Space size={4} wrap>
+                <Tag>{sourceLabels[asset.sourceFormat]}</Tag>
+                <Tag color={statusColors[asset.status]}>{statusLabels[asset.status]}</Tag>
+              </Space>
+            }
             onClick={() => setSelectedAssetId(asset.id)}
           >
-            <Typography.Text type="secondary">
-              版本 {asset.currentVersion} · {new Date(asset.updatedAt).toLocaleString()}
-            </Typography.Text>
+            <div className="asset-meta">
+              {asset.job && (
+                <Typography.Text type="secondary">
+                  {stageLabels[asset.job.stage] ?? asset.job.stage}
+                  {asset.job.totalUnits
+                    ? ` · ${asset.job.processedUnits}/${asset.job.totalUnits}`
+                    : ''}
+                </Typography.Text>
+              )}
+              {asset.job?.errorMessage && (
+                <Typography.Text type="danger">{asset.job.errorMessage}</Typography.Text>
+              )}
+              <Typography.Text type="secondary">
+                {asset.currentVersion > 0 ? `版本 ${asset.currentVersion} · ` : ''}
+                {new Date(asset.updatedAt).toLocaleString()}
+              </Typography.Text>
+              {canRetryAsset(asset) && (
+                <Button
+                  size="small"
+                  loading={assetRetry.isPending && assetRetry.variables === asset.id}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    assetRetry.mutate(asset.id)
+                  }}
+                >
+                  重试解析（{asset.job!.retryCount}/3）
+                </Button>
+              )}
+            </div>
           </Card>
         ))}
       </div>
@@ -590,7 +713,52 @@ function App() {
         </Form>
       </Modal>
 
+      <Modal
+        title="导入网页链接"
+        open={isUrlImportOpen}
+        width={640}
+        okText="开始导入"
+        cancelText="取消"
+        confirmLoading={urlImport.isPending}
+        afterOpenChange={(open) => {
+          if (open) urlForm.resetFields()
+        }}
+        onOk={() => urlForm.submit()}
+        onCancel={() => setUrlImportOpen(false)}
+        forceRender
+      >
+        <Alert
+          className="form-hint"
+          type="info"
+          showIcon
+          title="目前支持无需登录、无需运行 JavaScript 的公开网页"
+          description="动态网页或受访问限制的页面可以改用粘贴文字、截图或文件上传。"
+        />
+        <Form<UrlForm>
+          form={urlForm}
+          layout="vertical"
+          onFinish={(values) => {
+            if (activeCollectionId) urlImport.mutate({ collectionId: activeCollectionId, values })
+          }}
+        >
+          <Form.Item
+            label="网页地址"
+            name="url"
+            rules={[
+              { required: true, whitespace: true, message: '请输入网页地址' },
+              { type: 'url', message: '请输入完整的 http:// 或 https:// 地址' },
+            ]}
+          >
+            <Input autoFocus placeholder="https://example.com/interview" />
+          </Form.Item>
+          <Form.Item label="标题（可选）" name="title">
+            <Input maxLength={200} placeholder="留空时使用网页标题或域名" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       <Drawer
+        classNames={{ root: 'asset-drawer' }}
         title={assetDetail.data?.title ?? '资料详情'}
         size={720}
         open={Boolean(selectedAssetId)}
@@ -602,6 +770,7 @@ function App() {
           assetDetail.data && (
             <Space>
               <Button
+                disabled={assetDetail.data.currentVersion === 0}
                 onClick={() => {
                   openQuestionCreate(assetDetail.data?.chunks[0]?.id)
                 }}
@@ -609,6 +778,7 @@ function App() {
                 从此资料建题
               </Button>
               <Button
+                disabled={assetDetail.data.currentVersion === 0}
                 onClick={() => {
                   setAssetDraft(assetDetail.data!.content)
                   setAssetEditing(true)
@@ -633,9 +803,67 @@ function App() {
           <>
             <Space wrap>
               <Tag>{sourceLabels[assetDetail.data.sourceFormat]}</Tag>
-              <Tag>当前版本 {assetDetail.data.currentVersion}</Tag>
-              <Typography.Text type="secondary">共 {assetDetail.data.versions.length} 个版本</Typography.Text>
+              <Tag color={statusColors[assetDetail.data.status]}>
+                {statusLabels[assetDetail.data.status]}
+              </Tag>
+              {assetDetail.data.currentVersion > 0 && (
+                <Tag>当前版本 {assetDetail.data.currentVersion}</Tag>
+              )}
+              <Typography.Text type="secondary">
+                共 {assetDetail.data.versions.length} 个版本
+              </Typography.Text>
             </Space>
+            {assetDetail.data.sourceUrl && (
+              <Typography.Paragraph className="source-metadata">
+                来源：{' '}
+                <Typography.Link
+                  href={assetDetail.data.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {assetDetail.data.sourceUrl}
+                </Typography.Link>
+                {assetDetail.data.fetchedAt && (
+                  <> · 抓取于 {new Date(assetDetail.data.fetchedAt).toLocaleString()}</>
+                )}
+              </Typography.Paragraph>
+            )}
+            {assetDetail.data.originalFilename && (
+              <Typography.Paragraph className="source-metadata" type="secondary">
+                原文件：{assetDetail.data.originalFilename}
+                {assetDetail.data.byteSize
+                  ? ` · ${(assetDetail.data.byteSize / 1024).toFixed(1)} KiB`
+                  : ''}
+              </Typography.Paragraph>
+            )}
+            {assetDetail.data.job && isPendingAsset(assetDetail.data) && (
+              <Alert
+                className="asset-state-alert"
+                type="info"
+                showIcon
+                title={stageLabels[assetDetail.data.job.stage] ?? assetDetail.data.job.stage}
+                description="页面会自动刷新解析状态。"
+              />
+            )}
+            {assetDetail.data.job?.errorMessage && (
+              <Alert
+                className="asset-state-alert"
+                type={assetDetail.data.status === 'FAILED' ? 'error' : 'warning'}
+                showIcon
+                title={assetDetail.data.job.errorMessage}
+                description={
+                  canRetryAsset(assetDetail.data) ? (
+                    <Button
+                      size="small"
+                      loading={assetRetry.isPending}
+                      onClick={() => assetRetry.mutate(assetDetail.data!.id)}
+                    >
+                      重新解析（{assetDetail.data.job!.retryCount}/3）
+                    </Button>
+                  ) : undefined
+                }
+              />
+            )}
             <Divider />
             {isAssetEditing ? (
               <>
@@ -661,8 +889,10 @@ function App() {
                   </Button>
                 </Space>
               </>
-            ) : (
+            ) : assetDetail.data.currentVersion > 0 ? (
               <div className="source-content">{assetDetail.data.content}</div>
+            ) : (
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="解析完成后将在这里显示文字" />
             )}
           </>
         )}
