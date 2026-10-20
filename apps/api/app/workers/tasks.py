@@ -4,9 +4,17 @@
 耗时任务都将以 Celery 任务的形式挂在这里。
 """
 from app.workers.celery_app import celery_app
+from app.modules.ingestion_service import process_ingestion_job
+from uuid import UUID
 
 
 @celery_app.task(name="app.workers.tasks.echo")
 def echo(message: str) -> str:
     """验证 Worker 与 Redis 队列连通的占位任务。"""
     return f"echo: {message}"
+
+
+@celery_app.task(name="app.workers.tasks.process_ingestion")
+def process_ingestion(job_id: str) -> None:
+    """只传任务 ID，原件和状态均从受控存储与数据库读取。"""
+    process_ingestion_job(UUID(job_id))

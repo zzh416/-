@@ -71,7 +71,7 @@ services:
       context: ../apps/api
       args:
         BASE_IMAGE: ${API_BASE_IMAGE:-python:3.12-slim}
-    command: celery -A app.workers.celery_app worker --loglevel=info
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=1
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432

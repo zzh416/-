@@ -7,10 +7,21 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libreoffice-writer-nogui \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --uid 10001 appuser \
+    && mkdir -p /data \
+    && chown appuser:appuser /app /data
+
 COPY requirements.txt requirements.lock ./
 RUN pip install -r requirements.lock
 
-COPY . .
+COPY --chown=appuser:appuser . .
+COPY docker-entrypoint.sh /usr/local/bin/bagu-entrypoint
+RUN chmod 0755 /usr/local/bin/bagu-entrypoint
+
+ENTRYPOINT ["/usr/local/bin/bagu-entrypoint"]
 
 EXPOSE 9000
 
