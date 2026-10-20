@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -58,7 +58,13 @@ class Asset(Base):
     title: Mapped[str] = mapped_column(String(200))
     source_format: Mapped[str] = mapped_column(String(32))
     original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default="READY", server_default="READY")
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    byte_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="READY", server_default="READY")
     current_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -67,6 +73,9 @@ class Asset(Base):
 
     versions: Mapped[list["AssetVersion"]] = relationship(
         back_populates="asset", cascade="all, delete-orphan"
+    )
+    job: Mapped["IngestionJob | None"] = relationship(
+        back_populates="asset", cascade="all, delete-orphan", uselist=False
     )
 
 
@@ -100,6 +109,32 @@ class TextChunk(Base):
     end_offset: Mapped[int] = mapped_column(Integer)
 
     asset_version: Mapped[AssetVersion] = relationship(back_populates="chunks")
+
+
+class IngestionJob(Base):
+    __tablename__ = "ingestion_jobs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    asset_id: Mapped[UUID] = mapped_column(
+        ForeignKey("assets.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default="QUEUED", server_default="QUEUED")
+    stage: Mapped[str] = mapped_column(String(32), default="STORED", server_default="STORED")
+    processed_units: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    total_units: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    celery_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    asset: Mapped[Asset] = relationship(back_populates="job")
 
 
 class Question(Base):

@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     # 原文件存储目录（容器内路径，由 Compose 挂载到宿主机 data/）
     data_dir: str = "/data"
     max_text_import_bytes: int = 1024 * 1024
+    max_file_import_bytes: int = 25 * 1024 * 1024
+    max_ocr_image_bytes: int = 10 * 1024 * 1024
+    max_extracted_text_bytes: int = 5 * 1024 * 1024
+    max_url_response_bytes: int = 5 * 1024 * 1024
+    max_pdf_pages: int = 100
+    max_pdf_content_stream_bytes: int = 32 * 1024 * 1024
+    ingestion_http_timeout_seconds: float = 20.0
+    ingestion_retry_limit: int = 3
 
     # 模型网关 —— 默认 GLM，DeepSeek 降级
     glm_api_key: str = Field(default="", repr=False)
