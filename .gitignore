@@ -1,0 +1,23 @@
+# 环境变量与密钥（.env.example 需要提交）
+.env
+*.local
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+
+# Node
+node_modules/
+dist/
+*.log
+
+# 私有数据与原件（不纳入版本库）
+data/
+
+# 系统文件
+.DS_Store
+Thumbs.db

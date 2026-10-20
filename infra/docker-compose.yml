@@ -1,0 +1,120 @@
+name: bagu
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-bagu}
+      POSTGRES_USER: ${POSTGRES_USER:-bagu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bagu}
+    # 如需从宿主机用数据库工具连接，取消下面注释并改为空闲端口，例如 "5433:5432"
+    # ports:
+    #   - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bagu} -d ${POSTGRES_DB:-bagu}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    # 如需从宿主机连接，取消下面注释并改为空闲端口，例如 "6380:6379"
+    # ports:
+    #   - "6380:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ../apps/api
+      args:
+        BASE_IMAGE: ${API_BASE_IMAGE:-python:3.12-slim}
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 9000 --reload"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-bagu}
+      POSTGRES_USER: ${POSTGRES_USER:-bagu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bagu}
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      GLM_BASE_URL: ${GLM_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+      GLM_TEXT_MODEL: ${GLM_TEXT_MODEL:-glm-4-plus}
+      GLM_OCR_MODEL: ${GLM_OCR_MODEL:-glm-ocr}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_TEXT_MODEL: ${DEEPSEEK_TEXT_MODEL:-deepseek-chat}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+    volumes:
+      - ../apps/api:/app
+      - ../data:/data
+    ports:
+      - "127.0.0.1:9000:9000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ../apps/api
+      args:
+        BASE_IMAGE: ${API_BASE_IMAGE:-python:3.12-slim}
+    command: celery -A app.workers.celery_app worker --loglevel=info
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-bagu}
+      POSTGRES_USER: ${POSTGRES_USER:-bagu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bagu}
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      GLM_BASE_URL: ${GLM_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
+      GLM_TEXT_MODEL: ${GLM_TEXT_MODEL:-glm-4-plus}
+      GLM_OCR_MODEL: ${GLM_OCR_MODEL:-glm-ocr}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_TEXT_MODEL: ${DEEPSEEK_TEXT_MODEL:-deepseek-chat}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+    volumes:
+      - ../apps/api:/app
+      - ../data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../apps/web
+      args:
+        BASE_IMAGE: ${WEB_BASE_IMAGE:-node:24-alpine}
+    command: npm run dev -- --host
+    environment:
+      VITE_PROXY_TARGET: ${VITE_PROXY_TARGET:-http://api:9000}
+    volumes:
+      - ../apps/web:/app
+      - /app/node_modules
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  redisdata:

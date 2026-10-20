@@ -1,0 +1,14 @@
+# P1 验证基线（Python 3.12）。升级时先运行完整测试再修改版本。
+fastapi==0.150.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+pydantic-settings==2.16.0
+sqlalchemy==2.1.5
+alembic==1.20.0
+psycopg[binary]==3.3.6
+pgvector==0.5.1
+celery==5.6.3
+redis==8.1.0
+httpx==0.28.1
+python-multipart==0.0.32
+pytest==9.1.1
