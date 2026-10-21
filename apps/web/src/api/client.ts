@@ -160,6 +160,59 @@ export interface QuestionExtractionRun {
   finishedAt: string | null
 }
 
+export type ReviewStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED'
+
+export interface AnswerSourceSpan {
+  sourceChunkId: string
+  blockOrdinal: number
+  start: number
+  end: number
+  quote: string
+}
+
+export interface ExtractionReviewItem {
+  occurrenceId: string
+  questionId: string
+  questionVersion: number
+  prompt: string
+  answer: {
+    content: string
+    sourceType: 'USER_WRITTEN' | 'SOURCE_EXTRACTED'
+    version: number
+  } | null
+  sourceChunkId: string | null
+  sourceBlockOrdinal: number | null
+  sourceLocator: Record<string, unknown>
+  questionStart: number
+  questionEnd: number
+  questionQuote: string
+  answerSpans: AnswerSourceSpan[]
+  confidence: number
+  reviewStatus: ReviewStatus
+  createdAt: string
+}
+
+export interface SuspectedMiss {
+  sourceChunkId: string
+  sourceBlockOrdinal: number
+  sourceLocator: Record<string, unknown>
+  start: number
+  end: number
+  quote: string
+  reason: 'QUESTION_MARK' | 'HEADING' | 'QUESTION_PATTERN'
+}
+
+export interface ExtractionReviewPage {
+  items: ExtractionReviewItem[]
+  page: number
+  pageSize: number
+  total: number
+  pendingCount: number
+  confirmedCount: number
+  rejectedCount: number
+  suspectedMisses: SuspectedMiss[]
+}
+
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (!response.ok) {
@@ -252,6 +305,46 @@ export const createQuestionExtractionRun = (assetId: string) =>
 
 export const fetchQuestionExtractionRun = (runId: string) =>
   apiRequest<QuestionExtractionRun>(`/api/v1/question-extraction-runs/${runId}`)
+
+export const fetchExtractionReview = (
+  runId: string,
+  input: { reviewStatus?: ReviewStatus; page?: number; pageSize?: number },
+) => {
+  const params = new URLSearchParams()
+  if (input.reviewStatus) params.set('reviewStatus', input.reviewStatus)
+  params.set('page', String(input.page ?? 1))
+  params.set('pageSize', String(input.pageSize ?? 50))
+  return apiRequest<ExtractionReviewPage>(
+    `/api/v1/question-extraction-runs/${runId}/review-items?${params.toString()}`,
+  )
+}
+
+export const reviewExtractionItem = (
+  occurrenceId: string,
+  input: {
+    action: 'CONFIRM' | 'REJECT' | 'RESET'
+    expectedStatus: ReviewStatus
+  },
+) =>
+  apiRequest<ExtractionReviewItem>(
+    `/api/v1/question-extraction-items/${occurrenceId}/review`,
+    jsonRequest('PUT', input),
+  )
+
+export const createMissedQuestion = (
+  runId: string,
+  input: {
+    sourceChunkId: string
+    start: number
+    end: number
+    quote: string
+    prompt: string
+  },
+) =>
+  apiRequest<ExtractionReviewItem>(
+    `/api/v1/question-extraction-runs/${runId}/missed-items`,
+    jsonRequest('POST', input),
+  )
 
 export const reviseAsset = (
   assetId: string,

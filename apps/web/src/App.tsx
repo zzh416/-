@@ -50,6 +50,7 @@ import {
   type Question,
 } from './api/client'
 import { SafeMarkdown } from './components/SafeMarkdown'
+import { ExtractionReviewDrawer } from './components/ExtractionReviewDrawer'
 
 interface CollectionForm {
   name: string
@@ -159,6 +160,7 @@ function App() {
   const [answerFilter, setAnswerFilter] = useState<AnswerFilter>('ANY')
   const [page, setPage] = useState(1)
   const [extractionRunId, setExtractionRunId] = useState<string | null>(null)
+  const [isReviewOpen, setReviewOpen] = useState(false)
   const reportedExtractionRunId = useRef<string | null>(null)
 
   const health = useQuery({
@@ -993,11 +995,20 @@ function App() {
                         : '正在自动整理题目'
                 }
                 description={
-                  extractionRun.data.status === 'PARTIAL_SUCCESS'
-                    ? `已保存 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。${extractionRun.data.errorMessage ?? '部分内容未能识别'}。结果均为待复核。`
-                    : extractionRun.data.status === 'SUCCEEDED'
-                      ? `共 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。结果均为待复核。`
-                    : extractionRun.data.errorMessage ?? '系统只会提取原文答案，不会生成缺失答案。'
+                  <Space orientation="vertical" align="start">
+                    <span>
+                      {extractionRun.data.status === 'PARTIAL_SUCCESS'
+                        ? `已保存 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。${extractionRun.data.errorMessage ?? '部分内容未能识别'}。结果均为待复核。`
+                        : extractionRun.data.status === 'SUCCEEDED'
+                          ? `共 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。结果均为待复核。`
+                          : extractionRun.data.errorMessage ?? '系统只会提取原文已有内容，不会生成缺失答案。'}
+                    </span>
+                    {['SUCCEEDED', 'PARTIAL_SUCCESS'].includes(extractionRun.data.status) && (
+                      <Button type="primary" size="small" onClick={() => setReviewOpen(true)}>
+                        对照原文复核
+                      </Button>
+                    )}
+                  </Space>
                 }
               />
             )}
@@ -1046,6 +1057,20 @@ function App() {
           </>
         )}
       </Drawer>
+
+      <ExtractionReviewDrawer
+        open={isReviewOpen}
+        runId={extractionRunId}
+        chunks={assetDetail.data?.chunks ?? []}
+        onClose={() => setReviewOpen(false)}
+        onQuestionsChanged={() => {
+          void refreshQuestions()
+        }}
+        notify={(kind, text) => {
+          if (kind === 'success') messageApi.success(text)
+          else messageApi.error(text)
+        }}
+      />
 
       <Modal
         title={sourceChunkId ? '从资料整理题目' : '新建题目'}
