@@ -45,7 +45,8 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         "#### 31.什么是零拷贝\n\n"
         "零拷贝减少用户态与内核态之间的数据复制。\n\n"
         "常见实现包括 mmap 和 sendfile。\n\n"
-        "#### 32.I/O 多路复用"
+        "#### 32.I/O 多路复用\n\n"
+        "#### 33.什么是描述符协议"
     )
     try:
         asset = client.post(
@@ -86,7 +87,7 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         second_question = "#### 32.I/O 多路复用"
 
         def fake_extractor(blocks, **kwargs):
-            assert [block.ordinal for block in blocks] == [0, 1, 2, 3]
+            assert [block.ordinal for block in blocks] == [0, 1, 2, 3, 4]
             return [
                 ExtractedPair(
                     question=ExtractedSpan(block_ordinal=0, quote=first_question),
@@ -138,8 +139,61 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         second_occurrence = next(item for item in occurrences if item.question_quote == second_question)
         assert second_occurrence.question_start == 0
 
+        review = client.get(f"/api/v1/question-extraction-runs/{run_id}/review-items")
+        assert review.status_code == 200
+        review_payload = review.json()
+        assert review_payload["pendingCount"] == 2
+        assert review_payload["confirmedCount"] == 0
+        assert review_payload["rejectedCount"] == 0
+        assert review_payload["suspectedMisses"][0]["quote"] == "#### 33.什么是描述符协议"
+
+        first_review_item = review_payload["items"][0]
+        confirmed = client.put(
+            f"/api/v1/question-extraction-items/{first_review_item['occurrenceId']}/review",
+            json={"action": "CONFIRM", "expectedStatus": "PENDING"},
+        )
+        assert confirmed.status_code == 200
+        assert confirmed.json()["reviewStatus"] == "CONFIRMED"
+        conflict = client.put(
+            f"/api/v1/question-extraction-items/{first_review_item['occurrenceId']}/review",
+            json={"action": "REJECT", "expectedStatus": "PENDING"},
+        )
+        assert conflict.status_code == 409
+
+        second_review_item = review_payload["items"][1]
+        rejected = client.put(
+            f"/api/v1/question-extraction-items/{second_review_item['occurrenceId']}/review",
+            json={"action": "REJECT", "expectedStatus": "PENDING"},
+        )
+        assert rejected.status_code == 200
+        assert rejected.json()["reviewStatus"] == "REJECTED"
+        visible_questions = client.get(
+            "/api/v1/questions", params={"collectionId": collection_id}
+        ).json()
+        assert [item["id"] for item in visible_questions["items"]] == [
+            first_review_item["questionId"]
+        ]
+
+        reset = client.put(
+            f"/api/v1/question-extraction-items/{second_review_item['occurrenceId']}/review",
+            json={"action": "RESET", "expectedStatus": "REJECTED"},
+        )
+        assert reset.status_code == 200
+        assert reset.json()["reviewStatus"] == "PENDING"
+
         app.dependency_overrides[get_current_user_id] = lambda: uuid4()
         assert client.get(f"/api/v1/question-extraction-runs/{run_id}").status_code == 404
+        assert (
+            client.get(f"/api/v1/question-extraction-runs/{run_id}/review-items").status_code
+            == 404
+        )
+        assert (
+            client.put(
+                f"/api/v1/question-extraction-items/{first_review_item['occurrenceId']}/review",
+                json={"action": "RESET", "expectedStatus": "CONFIRMED"},
+            ).status_code
+            == 404
+        )
     finally:
         app.dependency_overrides.clear()
         for question_id in question_ids:

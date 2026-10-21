@@ -41,6 +41,20 @@ class AnswerSourceSpanView(APIModel):
     quote: str
 
 
+ReviewStatus = Literal["PENDING", "CONFIRMED", "REJECTED"]
+
+
+class ExtractionReviewUpdate(APIModel):
+    action: Literal["CONFIRM", "REJECT", "RESET"]
+    expected_status: ReviewStatus
+
+
+class ExtractionAnswerView(APIModel):
+    content: str
+    source_type: Literal["USER_WRITTEN", "SOURCE_EXTRACTED"]
+    version: int
+
+
 class QuestionOccurrenceView(APIModel):
     id: UUID
     question_id: UUID
@@ -56,5 +70,44 @@ class QuestionOccurrenceView(APIModel):
     answer_quote: str | None
     answer_spans: list[AnswerSourceSpanView]
     confidence: float
-    review_status: Literal["PENDING", "CONFIRMED", "REJECTED"]
+    review_status: ReviewStatus
     created_at: datetime
+
+
+class ExtractionReviewItemView(APIModel):
+    occurrence_id: UUID
+    question_id: UUID
+    question_version: int
+    prompt: str
+    answer: ExtractionAnswerView | None
+    source_chunk_id: UUID | None
+    source_block_ordinal: int | None
+    source_locator: dict
+    question_start: int
+    question_end: int
+    question_quote: str
+    answer_spans: list[AnswerSourceSpanView]
+    confidence: float
+    review_status: ReviewStatus
+    created_at: datetime
+
+
+class SuspectedMissView(APIModel):
+    source_chunk_id: UUID
+    source_block_ordinal: int
+    source_locator: dict
+    start: int
+    end: int
+    quote: str
+    reason: Literal["QUESTION_MARK", "HEADING", "QUESTION_PATTERN"]
+
+
+class ExtractionReviewPage(APIModel):
+    items: list[ExtractionReviewItemView]
+    page: int
+    page_size: int
+    total: int
+    pending_count: int
+    confirmed_count: int
+    rejected_count: int
+    suspected_misses: list[SuspectedMissView]

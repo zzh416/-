@@ -3,7 +3,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -18,6 +18,7 @@ from app.models import (
     Collection,
     Question,
     QuestionNote,
+    QuestionOccurrence,
     TextChunk,
 )
 from app.schemas.questions import (
@@ -134,7 +135,19 @@ def list_questions(
     db: Session = Depends(get_db),
     owner_id: UUID = Depends(get_current_user_id),
 ) -> QuestionPage:
-    filters = [Question.owner_id == owner_id]
+    has_occurrence = exists(
+        select(QuestionOccurrence.id).where(QuestionOccurrence.question_id == Question.id)
+    )
+    has_visible_occurrence = exists(
+        select(QuestionOccurrence.id).where(
+            QuestionOccurrence.question_id == Question.id,
+            QuestionOccurrence.review_status != "REJECTED",
+        )
+    )
+    filters = [
+        Question.owner_id == owner_id,
+        or_(~has_occurrence, has_visible_occurrence),
+    ]
     if collection_id is not None:
         filters.append(Question.collection_id == collection_id)
     if q and q.strip():
