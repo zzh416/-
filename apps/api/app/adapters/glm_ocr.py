@@ -26,6 +26,37 @@ class OCRResult:
     provider_task_id: str | None
 
 
+def _file_data_url(content: bytes) -> str:
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        media_type = "image/png"
+    elif content.startswith(b"\xff\xd8\xff"):
+        media_type = "image/jpeg"
+    elif content.startswith(b"%PDF-"):
+        media_type = "application/pdf"
+    else:
+        raise OCRServiceError(
+            "OCR_FILE_TYPE_UNSUPPORTED",
+            "OCR 仅支持 PDF、JPG、PNG 文件",
+            retryable=False,
+        )
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{media_type};base64,{encoded}"
+
+
+def _provider_error_code(response_content: bytes | bytearray) -> str | None:
+    try:
+        payload = json.loads(response_content)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return None
+    code = error.get("code")
+    return str(code) if isinstance(code, (str, int)) else None
+
+
 def extract_with_glm_ocr(
     content: bytes,
     *,
@@ -36,6 +67,7 @@ def extract_with_glm_ocr(
 ) -> OCRResult:
     if not api_key.strip():
         raise OCRNotConfigured("尚未配置 GLM_API_KEY")
+    file_data = _file_data_url(content)
     endpoint = f"{base_url.rstrip('/')}/layout_parsing"
     own_client = client is None
     active_client = client or httpx.Client(timeout=httpx.Timeout(120.0, connect=20.0))
@@ -47,7 +79,7 @@ def extract_with_glm_ocr(
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
                     "model": model,
-                    "file": base64.b64encode(content).decode("ascii"),
+                    "file": file_data,
                     "return_crop_images": False,
                     "need_layout_visualization": False,
                 },
@@ -82,6 +114,12 @@ def extract_with_glm_ocr(
                 retryable=True,
             )
         if status >= 400:
+            if _provider_error_code(response_content) == "1214":
+                raise OCRServiceError(
+                    "OCR_FILE_REJECTED",
+                    "OCR 仅支持 PDF、JPG、PNG；图片不超过 10 MB，PDF 不超过 50 MB 且最多 100 页",
+                    retryable=False,
+                )
             raise OCRServiceError("OCR_REQUEST_REJECTED", "OCR 服务拒绝了该文件", retryable=False)
 
         try:

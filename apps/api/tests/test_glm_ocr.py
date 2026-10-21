@@ -1,3 +1,6 @@
+import base64
+import json
+
 import httpx
 import pytest
 
@@ -33,9 +36,60 @@ def test_glm_ocr_uses_official_layout_endpoint_and_validates_markdown() -> None:
 
     assert captured["url"] == "https://open.bigmodel.cn/api/paas/v4/layout_parsing"
     assert captured["authorization"] == "Bearer test-key-not-secret"
-    assert '"model":"glm-ocr"' in str(captured["payload"])
+    payload = json.loads(str(captured["payload"]))
+    assert payload["model"] == "glm-ocr"
+    assert payload["file"].startswith("data:image/png;base64,")
+    assert base64.b64decode(payload["file"].split(",", 1)[1]).startswith(b"\x89PNG")
     assert result.markdown.startswith("# Python 面经")
     assert result.page_count == 1
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_prefix"),
+    [
+        (b"\xff\xd8\xffimage", "data:image/jpeg;base64,"),
+        (b"%PDF-1.7\ncontent", "data:application/pdf;base64,"),
+    ],
+)
+def test_glm_ocr_adds_media_type_to_supported_base64_files(
+    content: bytes,
+    expected_prefix: str,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.read())
+        return httpx.Response(200, json={"md_results": "recognized"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        extract_with_glm_ocr(
+            content,
+            api_key="test-key-not-secret",
+            base_url="https://open.bigmodel.cn/api/paas/v4",
+            model="glm-ocr",
+            client=client,
+        )
+
+    assert str(captured["payload"]["file"]).startswith(expected_prefix)  # type: ignore[index]
+
+
+def test_glm_ocr_rejects_unsupported_bytes_before_request() -> None:
+    with httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: pytest.fail("unsupported files must not reach the OCR provider")
+        )
+    ) as client:
+        with pytest.raises(OCRServiceError) as error:
+            extract_with_glm_ocr(
+                b"not-an-image",
+                api_key="test-key-not-secret",
+                base_url="https://open.bigmodel.cn/api/paas/v4",
+                model="glm-ocr",
+                client=client,
+            )
+
+    assert error.value.code == "OCR_FILE_TYPE_UNSUPPORTED"
+    assert error.value.retryable is False
 
 
 def test_glm_ocr_requires_key_without_sending_request() -> None:
@@ -67,7 +121,7 @@ def test_glm_ocr_maps_provider_errors_without_exposing_body(
     with httpx.Client(transport=transport) as client:
         with pytest.raises(OCRServiceError) as error:
             extract_with_glm_ocr(
-                b"image",
+                b"\x89PNG\r\n\x1a\nimage",
                 api_key="test-key-not-secret",
                 base_url="https://open.bigmodel.cn/api/paas/v4",
                 model="glm-ocr",
@@ -76,3 +130,30 @@ def test_glm_ocr_maps_provider_errors_without_exposing_body(
     assert error.value.code == expected_code
     assert error.value.retryable is retryable
     assert "sensitive provider body" not in str(error.value)
+
+
+def test_glm_ocr_explains_provider_file_rejection_without_exposing_arbitrary_body() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            400,
+            json={
+                "error": {
+                    "code": "1214",
+                    "message": "provider text that must not be copied directly",
+                }
+            },
+        )
+    )
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(OCRServiceError) as error:
+            extract_with_glm_ocr(
+                b"\x89PNG\r\n\x1a\nimage",
+                api_key="test-key-not-secret",
+                base_url="https://open.bigmodel.cn/api/paas/v4",
+                model="glm-ocr",
+                client=client,
+            )
+
+    assert error.value.code == "OCR_FILE_REJECTED"
+    assert "PDF、JPG、PNG" in str(error.value)
+    assert "provider text" not in str(error.value)
