@@ -2,7 +2,7 @@
 
 把分散的面经和内部八股知识整理成可检索、可修订的个人问答库。完整架构与后续阶段见 [架构与技术选型设计](./面经综合助手_架构与技术选型设计.md)。
 
-## 当前已支持（P1 + P2）
+## 当前已支持（P1 + P2.5）
 
 - 创建面经或知识库资料库。
 - 粘贴纯文字/Markdown，或导入 UTF-8 编码的 `.txt`、`.md`、`.markdown` 文件；单份上限 1 MiB。
@@ -12,11 +12,12 @@
 - 问题、答案、代码使用不同字体；Markdown 不执行原始 HTML，也不自动加载远程图片。
 - 本机固定用户隔离、创建请求幂等、并发编辑版本冲突检查和刷新后持久化。
 - 上传 `.png`、`.jpg`、`.jpeg`、`.pdf`、`.docx`、`.doc`；这些二进制文件上限 25 MiB，PDF 最多 100 页。
-- 导入无需登录和 JavaScript 的公开静态网页，保存来源 URL、抓取时间与 HTML 快照。
+- 通过同一个链接入口导入公开网页：先提取静态正文，遇到 JavaScript 空壳时自动使用隔离的 Chromium 渲染，再保存来源 URL、抓取时间与 HTML 快照。
 - Celery Worker 后台解析，界面自动刷新等待、处理、部分完成、等待配置和失败状态，并支持最多三次手动重试。
 - 图片、扫描 PDF 和 DOCX 内嵌图片通过智谱 `glm-ocr` 识别；未配置 Key 时保留资料并明确提示，不会伪装为成功。
 - PDF 文字层、DOCX 段落/标题/表格及旧 `.doc` 转换可在本地完成；旧 `.doc` 由容器内无界面的 LibreOffice 转换。
-- 网页导入拒绝本机、私网、保留地址、非标准端口和自动重定向，并限制响应大小与超时。
+- 网页导入拒绝本机、私网、保留地址和非标准端口；静态请求与浏览器请求都会检查目标地址，并限制请求数、响应大小和超时。
+- 链接导入只处理匿名可访问的单个页面；需要登录、验证码或当前章节没有体现在 URL 中时，界面会提示改用粘贴文字或上传文件。
 
 简历技能提取与个性化筛选属于下一阶段 P3；RAG 和自动生成答案仍属于后续阶段。
 
@@ -26,6 +27,7 @@
 - 后端：FastAPI、SQLAlchemy、Alembic
 - 数据：PostgreSQL（pgvector 镜像为后续阶段预留）
 - 文档解析：pypdf、python-docx、Trafilatura、LibreOffice
+- 动态网页：Playwright、Chromium（独立无密钥容器）
 - 图片 OCR：智谱 `glm-ocr`
 - 后台任务：Celery、Redis
 
@@ -68,6 +70,7 @@ docker compose -f infra/docker-compose.yml up -d --no-deps --force-recreate --re
 
 ```bash
 docker compose -f infra/docker-compose.yml exec -T api pytest -q
+docker compose -f infra/docker-compose.yml exec -T renderer npm test
 docker compose -f infra/docker-compose.yml exec -T web npm run lint
 docker compose -f infra/docker-compose.yml exec -T web npm run build
 docker compose -f infra/docker-compose.yml config --quiet
