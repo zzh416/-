@@ -202,6 +202,8 @@ def create_question_extraction_run(
     )
     if asset is None:
         raise HTTPException(status_code=404, detail="资料不存在")
+    if asset.kind != "LIBRARY":
+        raise HTTPException(status_code=409, detail="简历资料不能用于题目抽取")
     if asset.status not in {"READY", "PARTIAL_SUCCESS"} or asset.current_version < 1:
         raise HTTPException(status_code=409, detail="资料尚未解析完成，不能抽取题目")
     version = db.scalar(

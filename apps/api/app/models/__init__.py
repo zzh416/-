@@ -6,12 +6,16 @@ from app.models.core import (
     Collection,
     IdempotencyRecord,
     IngestionJob,
+    PreferenceRule,
+    ProfileSkill,
+    ProfileVersion,
     Question,
     QuestionExtractionRun,
     QuestionNote,
     QuestionOccurrence,
     TextChunk,
     User,
+    UserProfile,
 )
 
 __all__ = [
@@ -22,10 +26,14 @@ __all__ = [
     "Collection",
     "IdempotencyRecord",
     "IngestionJob",
+    "PreferenceRule",
+    "ProfileSkill",
+    "ProfileVersion",
     "Question",
     "QuestionExtractionRun",
     "QuestionNote",
     "QuestionOccurrence",
     "TextChunk",
     "User",
+    "UserProfile",
 ]

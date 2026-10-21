@@ -6,6 +6,7 @@
 from app.workers.celery_app import celery_app
 from app.modules.ingestion_service import process_ingestion_job
 from app.modules.question_extraction_service import process_question_extraction_run
+from app.modules.profile_service import process_profile_extraction as run_profile_extraction
 from uuid import UUID
 
 
@@ -25,3 +26,9 @@ def process_ingestion(job_id: str) -> None:
 def process_question_extraction(run_id: str) -> None:
     """从固定资料版本中抽取题目和原文答案。"""
     process_question_extraction_run(UUID(run_id))
+
+
+@celery_app.task(name="app.workers.tasks.process_profile_extraction")
+def process_profile_extraction(profile_id: str, expected_profile_version: int) -> None:
+    """Extract an evidence-backed skill profile from the current resume version."""
+    run_profile_extraction(UUID(profile_id), expected_profile_version)

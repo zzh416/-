@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     JSON,
     BigInteger,
     DateTime,
@@ -63,9 +64,10 @@ class Asset(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    collection_id: Mapped[UUID] = mapped_column(
-        ForeignKey("collections.id", ondelete="CASCADE"), index=True
+    collection_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("collections.id", ondelete="CASCADE"), index=True, nullable=True
     )
+    kind: Mapped[str] = mapped_column(String(24), default="LIBRARY", server_default="LIBRARY")
     title: Mapped[str] = mapped_column(String(200))
     source_format: Mapped[str] = mapped_column(String(32))
     original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -293,6 +295,104 @@ class QuestionNote(Base):
     )
 
     question: Mapped[Question] = relationship(back_populates="note")
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    resume_asset_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("assets.id", ondelete="SET NULL"), unique=True, nullable=True
+    )
+    current_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    extraction_status: Mapped[str] = mapped_column(
+        String(32), default="EMPTY", server_default="EMPTY"
+    )
+    target_role: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ProfileVersion(Base):
+    __tablename__ = "profile_versions"
+    __table_args__ = (
+        UniqueConstraint("profile_id", "version", name="uq_profile_versions_profile_version"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    profile_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_profiles.id", ondelete="CASCADE"), index=True
+    )
+    version: Mapped[int] = mapped_column(Integer)
+    resume_asset_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("asset_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    target_role: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    skills: Mapped[list["ProfileSkill"]] = relationship(
+        back_populates="profile_version", cascade="all, delete-orphan"
+    )
+
+
+class ProfileSkill(Base):
+    __tablename__ = "profile_skills"
+    __table_args__ = (
+        UniqueConstraint(
+            "profile_version_id",
+            "canonical_name",
+            name="uq_profile_skills_version_canonical",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    profile_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("profile_versions.id", ondelete="CASCADE"), index=True
+    )
+    display_name: Mapped[str] = mapped_column(String(120))
+    canonical_name: Mapped[str] = mapped_column(String(120))
+    category: Mapped[str] = mapped_column(String(40))
+    proficiency: Mapped[str] = mapped_column(
+        String(24), default="UNSPECIFIED", server_default="UNSPECIFIED"
+    )
+    evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_status: Mapped[str] = mapped_column(
+        String(24), default="PENDING", server_default="PENDING"
+    )
+    source: Mapped[str] = mapped_column(String(24), default="MODEL", server_default="MODEL")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    profile_version: Mapped[ProfileVersion] = relationship(back_populates="skills")
+
+
+class PreferenceRule(Base):
+    __tablename__ = "preference_rules"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    rule_type: Mapped[str] = mapped_column(String(16))
+    technology: Mapped[str] = mapped_column(String(120))
+    canonical_technology: Mapped[str] = mapped_column(String(120), index=True)
+    category: Mapped[str] = mapped_column(String(40))
+    scope: Mapped[str] = mapped_column(String(16), default="BOTH", server_default="BOTH")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class IdempotencyRecord(Base):

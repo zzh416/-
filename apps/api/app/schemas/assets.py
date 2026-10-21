@@ -106,7 +106,7 @@ class IngestionJobView(APIModel):
 
 class AssetSummary(APIModel):
     id: UUID
-    collection_id: UUID
+    collection_id: UUID | None
     title: str
     source_format: SourceFormat
     original_filename: str | None

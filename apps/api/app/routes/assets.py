@@ -44,15 +44,17 @@ def _owned_collection(db: Session, collection_id: UUID, owner_id: UUID) -> Colle
 def _create_asset(
     db: Session,
     owner_id: UUID,
-    collection_id: UUID,
+    collection_id: UUID | None,
     *,
     title: str,
     content: str,
     source_format: str,
     original_filename: str | None = None,
     idempotency_key: str | None = None,
+    asset_kind: str = "LIBRARY",
 ) -> Asset:
-    _owned_collection(db, collection_id, owner_id)
+    if collection_id is not None:
+        _owned_collection(db, collection_id, owner_id)
     if len(content.encode("utf-8")) > settings.max_text_import_bytes:
         raise HTTPException(status_code=413, detail="文字资料不能超过 1 MiB")
 
@@ -63,6 +65,7 @@ def _create_asset(
             "content": content,
             "sourceFormat": source_format,
             "originalFilename": original_filename,
+            "assetKind": asset_kind,
         }
     )
     replay_id = replay_resource_id(db, owner_id, "asset:create", idempotency_key, digest)
@@ -75,6 +78,7 @@ def _create_asset(
     asset = Asset(
         owner_id=owner_id,
         collection_id=collection_id,
+        kind=asset_kind,
         title=title.strip(),
         source_format=source_format,
         original_filename=original_filename,
@@ -124,7 +128,7 @@ def _dispatch_ingestion(db: Session, asset: Asset, job: IngestionJob) -> None:
 def _create_ingestion_asset(
     db: Session,
     owner_id: UUID,
-    collection_id: UUID,
+    collection_id: UUID | None,
     *,
     title: str,
     source_format: str,
@@ -133,8 +137,10 @@ def _create_ingestion_asset(
     content: bytes | None,
     source_url: str | None,
     idempotency_key: str | None,
+    asset_kind: str = "LIBRARY",
 ) -> Asset:
-    _owned_collection(db, collection_id, owner_id)
+    if collection_id is not None:
+        _owned_collection(db, collection_id, owner_id)
     content_digest = hashlib.sha256(content).hexdigest() if content is not None else None
     digest = request_hash(
         {
@@ -144,6 +150,7 @@ def _create_ingestion_asset(
             "originalFilename": original_filename,
             "sourceUrl": source_url,
             "contentSha256": content_digest,
+            "assetKind": asset_kind,
         }
     )
     replay_id = replay_resource_id(db, owner_id, "asset:create", idempotency_key, digest)
@@ -165,6 +172,7 @@ def _create_ingestion_asset(
         id=asset_id,
         owner_id=owner_id,
         collection_id=collection_id,
+        kind=asset_kind,
         title=title.strip(),
         source_format=source_format,
         original_filename=original_filename,
