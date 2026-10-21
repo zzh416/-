@@ -42,7 +42,7 @@ class QuestionUpdate(APIModel):
 class AnswerView(APIModel):
     id: UUID
     content: str
-    source_type: Literal["USER_WRITTEN"]
+    source_type: Literal["USER_WRITTEN", "SOURCE_EXTRACTED"]
     version: int
     updated_at: datetime
 
@@ -58,7 +58,7 @@ class QuestionView(APIModel):
     id: UUID
     collection_id: UUID | None
     source_chunk_id: UUID | None
-    source_type: Literal["USER_WRITTEN", "SOURCE", "SOURCE_REMOVED"]
+    source_type: Literal["USER_WRITTEN", "SOURCE", "SOURCE_EXTRACTED", "SOURCE_REMOVED"]
     prompt: str
     version: int
     answer: AnswerView | None

@@ -21,10 +21,11 @@ import {
   Upload,
   message,
 } from 'antd'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   createCollection,
   createQuestion,
+  createQuestionExtractionRun,
   createTextAsset,
   createUrlAsset,
   deleteAsset,
@@ -36,6 +37,7 @@ import {
   fetchCollections,
   fetchHealth,
   fetchQuestions,
+  fetchQuestionExtractionRun,
   reviseAsset,
   retryAsset,
   updateQuestion,
@@ -156,6 +158,8 @@ function App() {
   const [search, setSearch] = useState('')
   const [answerFilter, setAnswerFilter] = useState<AnswerFilter>('ANY')
   const [page, setPage] = useState(1)
+  const [extractionRunId, setExtractionRunId] = useState<string | null>(null)
+  const reportedExtractionRunId = useRef<string | null>(null)
 
   const health = useQuery({
     queryKey: ['health'],
@@ -192,6 +196,15 @@ function App() {
         page,
       }),
     enabled: Boolean(activeCollectionId),
+  })
+  const extractionRun = useQuery({
+    queryKey: ['question-extraction-run', extractionRunId],
+    queryFn: () => fetchQuestionExtractionRun(extractionRunId!),
+    enabled: Boolean(extractionRunId),
+    refetchInterval: (query) =>
+      query.state.data && ['QUEUED', 'PROCESSING'].includes(query.state.data.status)
+        ? 2_000
+        : false,
   })
 
   const selectedCollection = useMemo(
@@ -286,6 +299,15 @@ function App() {
     },
     onError: (error) => messageApi.error(error.message),
   })
+  const questionExtractionCreate = useMutation({
+    mutationFn: createQuestionExtractionRun,
+    onSuccess: (run) => {
+      setExtractionRunId(run.id)
+      reportedExtractionRunId.current = null
+      messageApi.success('已提交自动整理任务；只提取原文已有的题目和答案')
+    },
+    onError: (error) => messageApi.error(error.message),
+  })
   const questionCreate = useMutation({
     mutationFn: createQuestion,
     onSuccess: async () => {
@@ -350,6 +372,21 @@ function App() {
   function closeEditDialog() {
     setEditingQuestion(null)
   }
+
+  useEffect(() => {
+    const run = extractionRun.data
+    if (!run || run.id === reportedExtractionRunId.current) return
+    if (run.status === 'SUCCEEDED' || run.status === 'PARTIAL_SUCCESS') {
+      reportedExtractionRunId.current = run.id
+      void queryClient.invalidateQueries({ queryKey: ['questions'] })
+      messageApi.success(
+        `自动整理完成：${run.answeredCount} 道有答案，${run.missingCount} 道无答案`,
+      )
+    } else if (run.status === 'FAILED' || run.status === 'WAITING_FOR_CONFIGURATION') {
+      reportedExtractionRunId.current = run.id
+      messageApi.error(run.errorMessage ?? '自动整理失败')
+    }
+  }, [extractionRun.data, messageApi, queryClient])
 
   function openQuestionCreate(chunkId?: string) {
     setSourceChunkId(chunkId ?? null)
@@ -531,9 +568,19 @@ function App() {
           <article className="question-card" key={question.id}>
             <div className="question-heading">
               <span className="question-index">Q{(page - 1) * 20 + index + 1}</span>
-              <Tag color={question.sourceType === 'SOURCE' ? 'blue' : 'default'}>
+              <Tag
+                color={
+                  question.sourceType === 'SOURCE'
+                    ? 'blue'
+                    : question.sourceType === 'SOURCE_EXTRACTED'
+                      ? 'purple'
+                      : 'default'
+                }
+              >
                 {question.sourceType === 'SOURCE'
                   ? '来自资料'
+                  : question.sourceType === 'SOURCE_EXTRACTED'
+                    ? '自动提取·待复核'
                   : question.sourceType === 'SOURCE_REMOVED'
                     ? '来源已删除'
                     : '手动整理'}
@@ -812,6 +859,19 @@ function App() {
           assetDetail.data && (
             <Space>
               <Button
+                type="primary"
+                disabled={
+                  assetDetail.data.currentVersion === 0 ||
+                  !['READY', 'PARTIAL_SUCCESS'].includes(assetDetail.data.status) ||
+                  (extractionRun.data?.assetId === assetDetail.data.id &&
+                    ['QUEUED', 'PROCESSING'].includes(extractionRun.data.status))
+                }
+                loading={questionExtractionCreate.isPending}
+                onClick={() => questionExtractionCreate.mutate(assetDetail.data!.id)}
+              >
+                自动整理题目
+              </Button>
+              <Button
                 disabled={assetDetail.data.currentVersion === 0}
                 onClick={() => {
                   openQuestionCreate(assetDetail.data?.chunks[0]?.id)
@@ -903,6 +963,35 @@ function App() {
                       重新解析（{assetDetail.data.job!.retryCount}/3）
                     </Button>
                   ) : undefined
+                }
+              />
+            )}
+            {extractionRun.data?.assetId === assetDetail.data.id && (
+              <Alert
+                className="asset-state-alert"
+                type={
+                  extractionRun.data.status === 'FAILED'
+                    ? 'error'
+                    : extractionRun.data.status === 'WAITING_FOR_CONFIGURATION'
+                      ? 'warning'
+                    : extractionRun.data.status === 'SUCCEEDED'
+                      ? 'success'
+                      : 'info'
+                }
+                showIcon
+                title={
+                  extractionRun.data.status === 'SUCCEEDED'
+                    ? '题目自动整理完成'
+                    : extractionRun.data.status === 'WAITING_FOR_CONFIGURATION'
+                      ? '等待 GLM 配置'
+                      : extractionRun.data.status === 'FAILED'
+                        ? '题目自动整理失败'
+                        : '正在自动整理题目'
+                }
+                description={
+                  extractionRun.data.status === 'SUCCEEDED'
+                    ? `共 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。结果均为待复核。`
+                    : extractionRun.data.errorMessage ?? '系统只会提取原文答案，不会生成缺失答案。'
                 }
               />
             )}

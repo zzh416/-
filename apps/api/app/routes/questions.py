@@ -231,6 +231,7 @@ def upsert_answer(
             raise HTTPException(status_code=409, detail="答案已被修改，请刷新后重试")
         answer.version += 1
         answer.content = payload.content
+        answer.source_type = "USER_WRITTEN"
         answer.revisions.append(AnswerRevision(version=answer.version, content=payload.content))
     db.commit()
     db.refresh(answer)

@@ -5,6 +5,7 @@
 """
 from app.workers.celery_app import celery_app
 from app.modules.ingestion_service import process_ingestion_job
+from app.modules.question_extraction_service import process_question_extraction_run
 from uuid import UUID
 
 
@@ -18,3 +19,9 @@ def echo(message: str) -> str:
 def process_ingestion(job_id: str) -> None:
     """只传任务 ID，原件和状态均从受控存储与数据库读取。"""
     process_ingestion_job(UUID(job_id))
+
+
+@celery_app.task(name="app.workers.tasks.process_question_extraction")
+def process_question_extraction(run_id: str) -> None:
+    """从固定资料版本中抽取题目和原文答案。"""
+    process_question_extraction_run(UUID(run_id))

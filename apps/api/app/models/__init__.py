@@ -7,7 +7,9 @@ from app.models.core import (
     IdempotencyRecord,
     IngestionJob,
     Question,
+    QuestionExtractionRun,
     QuestionNote,
+    QuestionOccurrence,
     TextChunk,
     User,
 )
@@ -21,7 +23,9 @@ __all__ = [
     "IdempotencyRecord",
     "IngestionJob",
     "Question",
+    "QuestionExtractionRun",
     "QuestionNote",
+    "QuestionOccurrence",
     "TextChunk",
     "User",
 ]

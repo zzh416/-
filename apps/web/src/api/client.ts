@@ -105,7 +105,7 @@ export interface AssetPage {
 export interface Answer {
   id: string
   content: string
-  sourceType: 'USER_WRITTEN'
+  sourceType: 'USER_WRITTEN' | 'SOURCE_EXTRACTED'
   version: number
   updatedAt: string
 }
@@ -121,7 +121,7 @@ export interface Question {
   id: string
   collectionId: string | null
   sourceChunkId: string | null
-  sourceType: 'USER_WRITTEN' | 'SOURCE' | 'SOURCE_REMOVED'
+  sourceType: 'USER_WRITTEN' | 'SOURCE' | 'SOURCE_EXTRACTED' | 'SOURCE_REMOVED'
   prompt: string
   version: number
   answer: Answer | null
@@ -141,6 +141,24 @@ export interface QuestionPage {
 }
 
 export type AnswerFilter = 'ANY' | 'ANSWERED' | 'MISSING'
+
+export interface QuestionExtractionRun {
+  id: string
+  assetId: string
+  assetVersionId: string
+  status: 'QUEUED' | 'PROCESSING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'WAITING_FOR_CONFIGURATION' | 'FAILED'
+  stage: string
+  questionCount: number
+  answeredCount: number
+  missingCount: number
+  model: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  createdAt: string
+  updatedAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -225,6 +243,15 @@ export const createUrlAsset = (
 
 export const retryAsset = (assetId: string) =>
   apiRequest<AssetSummary>(`/api/v1/assets/${assetId}/retry`, { method: 'POST' })
+
+export const createQuestionExtractionRun = (assetId: string) =>
+  apiRequest<QuestionExtractionRun>(`/api/v1/assets/${assetId}/question-extraction-runs`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
+  })
+
+export const fetchQuestionExtractionRun = (runId: string) =>
+  apiRequest<QuestionExtractionRun>(`/api/v1/question-extraction-runs/${runId}`)
 
 export const reviseAsset = (
   assetId: string,
