@@ -1,9 +1,11 @@
+import base64
 from io import BytesIO
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
 from docx import Document
 from fastapi.testclient import TestClient
+from pypdf import PdfReader, PdfWriter
 
 from app.adapters.glm_ocr import OCRNotConfigured, OCRResult
 from app.adapters.browser_renderer import RenderedPage
@@ -33,6 +35,31 @@ def _docx_bytes() -> bytes:
     document.add_paragraph("依赖注入如何工作？")
     output = BytesIO()
     document.save(output)
+    return output.getvalue()
+
+
+def _docx_with_image_bytes() -> bytes:
+    image = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    document = Document()
+    paragraph = document.add_paragraph()
+    paragraph.add_run("图片前的问题")
+    paragraph.add_run().add_picture(BytesIO(image))
+    paragraph.add_run("图片后的答案")
+    output = BytesIO()
+    document.save(output)
+    return output.getvalue()
+
+
+def _mixed_pdf_bytes() -> bytes:
+    from tests.test_ingestion_parsers import _text_pdf
+
+    writer = PdfWriter()
+    writer.append(BytesIO(_text_pdf("Native Python question")))
+    writer.add_blank_page(width=612, height=792)
+    output = BytesIO()
+    writer.write(output)
     return output.getvalue()
 
 
@@ -66,6 +93,83 @@ def test_worker_parses_docx_and_persists_version_and_chunks() -> None:
         assert payload["currentVersion"] == 1
         assert "FastAPI 面经" in payload["content"]
         assert any("依赖注入如何工作" in chunk["content"] for chunk in payload["chunks"])
+    finally:
+        if asset_id is not None:
+            client.delete(f"/api/v1/assets/{asset_id}")
+        client.delete(f"/api/v1/collections/{collection_id}")
+
+
+def test_worker_persists_docx_image_ocr_in_document_order_with_locator() -> None:
+    collection_id = _create_collection()
+    asset_id: str | None = None
+    try:
+        with patch("app.workers.celery_app.celery_app.send_task"):
+            uploaded = client.post(
+                f"/api/v1/collections/{collection_id}/assets/upload",
+                files={
+                    "file": (
+                        "ordered.docx",
+                        _docx_with_image_bytes(),
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    )
+                },
+            )
+        asset_id = uploaded.json()["id"]
+
+        process_ingestion_job(
+            UUID(uploaded.json()["job"]["id"]),
+            ocr_extractor=lambda *args, **kwargs: OCRResult(
+                markdown="图片中的问题",
+                page_count=1,
+                provider_task_id="docx-image",
+            ),
+        )
+
+        detail = client.get(f"/api/v1/assets/{asset_id}").json()
+        assert detail["content"].index("图片前的问题") < detail["content"].index("图片中的问题")
+        assert detail["content"].index("图片中的问题") < detail["content"].index("图片后的答案")
+        assert [chunk["blockType"] for chunk in detail["chunks"]] == [
+            "DOCX_PARAGRAPH",
+            "DOCX_IMAGE",
+            "DOCX_PARAGRAPH",
+        ]
+        assert detail["chunks"][1]["locator"]["paragraph"] == 1
+    finally:
+        if asset_id is not None:
+            client.delete(f"/api/v1/assets/{asset_id}")
+        client.delete(f"/api/v1/collections/{collection_id}")
+
+
+def test_worker_ocr_only_replaces_missing_pdf_page_and_keeps_native_page() -> None:
+    collection_id = _create_collection()
+    asset_id: str | None = None
+    ocr_page_counts: list[int] = []
+    try:
+        with patch("app.workers.celery_app.celery_app.send_task"):
+            uploaded = client.post(
+                f"/api/v1/collections/{collection_id}/assets/upload",
+                files={"file": ("mixed.pdf", _mixed_pdf_bytes(), "application/pdf")},
+            )
+        asset_id = uploaded.json()["id"]
+
+        def page_ocr(content: bytes, *args, **kwargs) -> OCRResult:
+            ocr_page_counts.append(len(PdfReader(BytesIO(content)).pages))
+            return OCRResult(
+                markdown="Scanned page question",
+                page_count=1,
+                provider_task_id="pdf-page",
+            )
+
+        process_ingestion_job(UUID(uploaded.json()["job"]["id"]), ocr_extractor=page_ocr)
+
+        detail = client.get(f"/api/v1/assets/{asset_id}").json()
+        assert detail["status"] == "READY"
+        assert ocr_page_counts == [1]
+        assert "Native Python question" in detail["content"]
+        assert "Scanned page question" in detail["content"]
+        assert [chunk["locator"]["page"] for chunk in detail["chunks"]] == [1, 2]
+        assert detail["chunks"][1]["locator"]["reason"] == "MISSING_TEXT"
+        assert detail["chunks"][1]["locator"]["extraction"] == "OCR"
     finally:
         if asset_id is not None:
             client.delete(f"/api/v1/assets/{asset_id}")

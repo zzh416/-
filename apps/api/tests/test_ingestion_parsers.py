@@ -1,3 +1,4 @@
+import base64
 from io import BytesIO
 
 import pytest
@@ -41,6 +42,49 @@ def _text_pdf(text: str) -> bytes:
     return bytes(output)
 
 
+def _text_and_image_pdf(text: str) -> bytes:
+    escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    stream = (
+        f"BT /F1 12 Tf 72 720 Td ({escaped}) Tj ET\n"
+        "q 120 0 0 80 72 560 cm /Im1 Do Q"
+    ).encode("ascii")
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Resources << /Font << /F1 4 0 R >> /XObject << /Im1 6 0 R >> >> "
+            b"/Contents 5 0 R >>"
+        ),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
+        (
+            b"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 "
+            b"/ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 3 >>\n"
+            b"stream\n\xff\xff\xff\nendstream"
+        ),
+    ]
+    output = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for index, body in enumerate(objects, start=1):
+        offsets.append(len(output))
+        output.extend(f"{index} 0 obj\n".encode("ascii"))
+        output.extend(body)
+        output.extend(b"\nendobj\n")
+    xref_offset = len(output)
+    output.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    output.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        output.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    output.extend(
+        (
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n"
+        ).encode("ascii")
+    )
+    return bytes(output)
+
+
 def test_pdf_parser_extracts_text_and_marks_blank_pages_for_ocr() -> None:
     extracted = parse_pdf(
         _text_pdf("Python interview question"),
@@ -50,6 +94,9 @@ def test_pdf_parser_extracts_text_and_marks_blank_pages_for_ocr() -> None:
     assert "Python interview question" in extracted.content
     assert extracted.total_units == 1
     assert extracted.missing_units == []
+    assert extracted.blocks[0].block_type == "PDF_PAGE"
+    assert extracted.blocks[0].locator == {"page": 1}
+    assert extracted.ocr_units == []
 
     buffer = BytesIO()
     writer = PdfWriter()
@@ -62,6 +109,24 @@ def test_pdf_parser_extracts_text_and_marks_blank_pages_for_ocr() -> None:
     )
     assert blank.total_units == 1
     assert blank.missing_units == [1]
+    assert blank.blocks[0].locator == {"page": 1}
+    assert blank.ocr_units[0].block_index == 0
+    assert blank.ocr_units[0].content_type == "application/pdf"
+
+
+def test_pdf_parser_marks_text_page_with_embedded_image_for_page_ocr() -> None:
+    result = parse_pdf(
+        _text_and_image_pdf("Native text before screenshot"),
+        max_pages=100,
+        max_content_stream_bytes=1024 * 1024,
+    )
+
+    assert result.blocks[0].content == "Native text before screenshot"
+    assert result.blocks[0].locator == {"page": 1}
+    assert result.missing_units == []
+    assert len(result.ocr_units) == 1
+    assert result.ocr_units[0].block_index == 0
+    assert result.ocr_units[0].locator == {"page": 1, "reason": "EMBEDDED_IMAGE"}
 
 
 def test_pdf_parser_rejects_page_count_over_limit() -> None:
@@ -96,7 +161,33 @@ def test_docx_parser_preserves_paragraph_and_table_order() -> None:
     assert result.content.index("Python 面经") < result.content.index("解释 GIL")
     assert result.content.index("解释 GIL") < result.content.index("什么是协程")
     assert "| 问题 | 答案 |" in result.content
-    assert result.embedded_images == []
+    assert result.ocr_units == []
+
+
+def test_docx_parser_keeps_inline_image_between_surrounding_paragraphs() -> None:
+    image = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+    )
+    document = Document()
+    image_paragraph = document.add_paragraph()
+    image_paragraph.add_run("图片前的问题")
+    image_paragraph.add_run().add_picture(BytesIO(image))
+    image_paragraph.add_run("图片后的答案")
+    buffer = BytesIO()
+    document.save(buffer)
+
+    result = parse_docx(buffer.getvalue())
+
+    assert [block.block_type for block in result.blocks] == [
+        "DOCX_PARAGRAPH",
+        "DOCX_IMAGE",
+        "DOCX_PARAGRAPH",
+    ]
+    assert result.blocks[0].content == "图片前的问题"
+    assert result.blocks[2].content == "图片后的答案"
+    assert result.blocks[1].locator["paragraph"] == 1
+    assert result.ocr_units[0].block_index == 1
+    assert result.ocr_units[0].content == image
 
 
 def test_webpage_extractor_returns_title_and_main_markdown() -> None:

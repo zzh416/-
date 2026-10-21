@@ -403,6 +403,7 @@ def retry_ingestion(
     job.total_units = None
     job.error_code = None
     job.error_message = None
+    job.unit_failures = []
     job.started_at = None
     job.finished_at = None
     asset.status = "QUEUED"

@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -107,6 +107,8 @@ class TextChunk(Base):
     content: Mapped[str] = mapped_column(Text)
     start_offset: Mapped[int] = mapped_column(Integer)
     end_offset: Mapped[int] = mapped_column(Integer)
+    block_type: Mapped[str] = mapped_column(String(32), default="TEXT", server_default="TEXT")
+    locator: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
 
     asset_version: Mapped[AssetVersion] = relationship(back_populates="chunks")
 
@@ -127,6 +129,7 @@ class IngestionJob(Base):
     celery_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    unit_failures: Mapped[list[dict]] = mapped_column(JSON, default=list, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

@@ -91,6 +91,7 @@ class IngestionJobView(APIModel):
     retry_count: int
     error_code: str | None
     error_message: str | None
+    unit_failures: list[dict]
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None
@@ -126,6 +127,8 @@ class TextChunkView(APIModel):
     content: str
     start_offset: int
     end_offset: int
+    block_type: str
+    locator: dict
 
 
 class AssetDetail(AssetSummary):

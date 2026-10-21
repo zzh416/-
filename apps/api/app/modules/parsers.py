@@ -7,14 +7,15 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
+from typing import Any
 from urllib.parse import urlsplit
-from zipfile import ZipFile
 
 from docx import Document
+from docx.oxml.ns import qn
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from lxml import html as lxml_html
-from pypdf import PdfReader
+from pypdf import PdfReader, PdfWriter
 from pypdf.errors import PdfReadError
 from trafilatura import extract
 
@@ -27,10 +28,19 @@ class IngestionParseError(ValueError):
 
 
 @dataclass(frozen=True)
-class EmbeddedImage:
-    name: str
+class SourceBlock:
+    block_type: str
+    content: str
+    locator: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class OCRUnit:
+    block_index: int
+    label: str
     content: bytes
     content_type: str
+    locator: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -38,8 +48,53 @@ class ParseResult:
     content: str
     total_units: int = 1
     missing_units: list[int] = field(default_factory=list)
-    embedded_images: list[EmbeddedImage] = field(default_factory=list)
+    blocks: list[SourceBlock] = field(default_factory=list)
+    ocr_units: list[OCRUnit] = field(default_factory=list)
     title: str | None = None
+
+
+def _single_page_pdf(page: Any) -> bytes:
+    output = io.BytesIO()
+    writer = PdfWriter()
+    writer.add_page(page)
+    writer.write(output)
+    return output.getvalue()
+
+
+def _resources_have_images(resources: Any) -> bool:
+    if resources is None:
+        return False
+    try:
+        resolved_resources = resources.get_object()
+        xobjects = resolved_resources.get("/XObject")
+        if xobjects is None:
+            return False
+        for item in xobjects.get_object().values():
+            resolved = item.get_object()
+            subtype = resolved.get("/Subtype")
+            if subtype == "/Image":
+                return True
+            if subtype == "/Form" and _resources_have_images(resolved.get("/Resources")):
+                return True
+        return False
+    except Exception:
+        # 无法安全判断时宁可让这一页进入 OCR，也不要静默漏掉截图。
+        return True
+
+
+def render_source_blocks(blocks: list[SourceBlock]) -> str:
+    sections = []
+    for block in blocks:
+        normalized = block.content.strip()
+        if not normalized:
+            continue
+        if block.block_type == "PDF_PAGE":
+            sections.append(f"## 第 {block.locator.get('page')} 页\n\n{normalized}")
+        elif block.block_type == "DOCX_IMAGE":
+            sections.append(f"## 内嵌图片：{block.locator.get('image', '图片')}\n\n{normalized}")
+        else:
+            sections.append(normalized)
+    return "\n\n".join(sections)
 
 
 def parse_pdf(
@@ -66,7 +121,8 @@ def parse_pdf(
             f"PDF 共 {page_count} 页，超过 {max_pages} 页上限",
         )
 
-    sections: list[str] = []
+    blocks: list[SourceBlock] = []
+    ocr_units: list[OCRUnit] = []
     missing_pages: list[int] = []
     for index, page in enumerate(reader.pages, start=1):
         try:
@@ -87,15 +143,38 @@ def parse_pdf(
                 f"PDF 第 {index} 页无法解析",
             ) from exc
         normalized = text.strip()
-        if len(normalized) < 8:
+        block_index = len(blocks)
+        blocks.append(
+            SourceBlock(
+                block_type="PDF_PAGE",
+                content=normalized,
+                locator={"page": index},
+            )
+        )
+        is_missing = len(normalized) < 8
+        has_images = _resources_have_images(page.get("/Resources"))
+        if is_missing:
             missing_pages.append(index)
-            continue
-        sections.append(f"## 第 {index} 页\n\n{normalized}")
+        if is_missing or has_images:
+            ocr_units.append(
+                OCRUnit(
+                    block_index=block_index,
+                    label=f"第 {index} 页",
+                    content=_single_page_pdf(page),
+                    content_type="application/pdf",
+                    locator={
+                        "page": index,
+                        "reason": "MISSING_TEXT" if is_missing else "EMBEDDED_IMAGE",
+                    },
+                )
+            )
 
     return ParseResult(
-        content="\n\n".join(sections),
+        content=render_source_blocks(blocks),
         total_units=page_count,
         missing_units=missing_pages,
+        blocks=blocks,
+        ocr_units=ocr_units,
     )
 
 
@@ -117,8 +196,8 @@ def _markdown_table(table: Table) -> str:
     return "\n".join(lines)
 
 
-def _paragraph_markdown(paragraph: Paragraph) -> str:
-    text = paragraph.text.strip()
+def _paragraph_text_markdown(paragraph: Paragraph, text: str) -> str:
+    text = text.strip()
     if not text:
         return ""
     style_name = paragraph.style.name if paragraph.style is not None else ""
@@ -131,48 +210,137 @@ def _paragraph_markdown(paragraph: Paragraph) -> str:
     return text
 
 
+def _paragraph_markdown(paragraph: Paragraph) -> str:
+    return _paragraph_text_markdown(paragraph, paragraph.text)
+
+
+def _image_relationship_ids(element: Any) -> list[str]:
+    relationship_ids: list[str] = []
+    for blip in element.xpath(".//a:blip"):
+        relationship_id = blip.get(qn("r:embed"))
+        if relationship_id:
+            relationship_ids.append(relationship_id)
+    return relationship_ids
+
+
+def _append_docx_image(
+    document: Any,
+    relationship_id: str,
+    blocks: list[SourceBlock],
+    ocr_units: list[OCRUnit],
+    locator: dict[str, Any],
+) -> None:
+    part = document.part.related_parts.get(relationship_id)
+    if part is None or part.content_type not in {"image/png", "image/jpeg"}:
+        return
+    name = str(part.partname).rsplit("/", 1)[-1]
+    image_locator = {**locator, "relationshipId": relationship_id, "image": name}
+    block_index = len(blocks)
+    blocks.append(SourceBlock("DOCX_IMAGE", "", image_locator))
+    ocr_units.append(
+        OCRUnit(
+            block_index=block_index,
+            label=f"内嵌图片：{name}",
+            content=part.blob,
+            content_type=part.content_type,
+            locator=image_locator,
+        )
+    )
+
+
+def _append_docx_paragraph_text(
+    paragraph: Paragraph,
+    text: str,
+    blocks: list[SourceBlock],
+    *,
+    paragraph_index: int,
+    segment: int | None = None,
+) -> None:
+    rendered = _paragraph_text_markdown(paragraph, text)
+    if not rendered:
+        return
+    locator: dict[str, Any] = {"paragraph": paragraph_index}
+    if segment is not None:
+        locator["segment"] = segment
+    blocks.append(SourceBlock("DOCX_PARAGRAPH", rendered, locator))
+
+
 def parse_docx(content: bytes) -> ParseResult:
     try:
         document = Document(io.BytesIO(content))
     except Exception as exc:
         raise IngestionParseError("DOCX_DAMAGED", "DOCX 文件损坏或无法读取") from exc
 
-    blocks: list[str] = []
+    blocks: list[SourceBlock] = []
+    ocr_units: list[OCRUnit] = []
+    paragraph_index = 0
+    table_index = 0
     for block in document.iter_inner_content():
         if isinstance(block, Paragraph):
-            rendered = _paragraph_markdown(block)
-        elif isinstance(block, Table):
-            rendered = _markdown_table(block)
-        else:
-            rendered = ""
-        if rendered:
-            blocks.append(rendered)
+            paragraph_index += 1
+            relationship_ids = _image_relationship_ids(block._element)
+            if not relationship_ids:
+                _append_docx_paragraph_text(
+                    block,
+                    block.text,
+                    blocks,
+                    paragraph_index=paragraph_index,
+                )
+                continue
 
-    images: list[EmbeddedImage] = []
-    try:
-        with ZipFile(io.BytesIO(content)) as archive:
-            for name in sorted(item for item in archive.namelist() if item.startswith("word/media/")):
-                suffix = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-                content_type = {
-                    "png": "image/png",
-                    "jpg": "image/jpeg",
-                    "jpeg": "image/jpeg",
-                }.get(suffix)
-                if content_type:
-                    images.append(
-                        EmbeddedImage(
-                            name=name.rsplit("/", 1)[-1],
-                            content=archive.read(name),
-                            content_type=content_type,
-                        )
+            pending_text: list[str] = []
+            segment = 0
+            for run in block.runs:
+                if run.text:
+                    pending_text.append(run.text)
+                run_images = _image_relationship_ids(run._element)
+                if not run_images:
+                    continue
+                if pending_text:
+                    segment += 1
+                    _append_docx_paragraph_text(
+                        block,
+                        "".join(pending_text),
+                        blocks,
+                        paragraph_index=paragraph_index,
+                        segment=segment,
                     )
-    except Exception as exc:
-        raise IngestionParseError("DOCX_DAMAGED", "DOCX 内部资源无法读取") from exc
+                    pending_text = []
+                for relationship_id in run_images:
+                    _append_docx_image(
+                        document,
+                        relationship_id,
+                        blocks,
+                        ocr_units,
+                        {"paragraph": paragraph_index},
+                    )
+            if pending_text:
+                segment += 1
+                _append_docx_paragraph_text(
+                    block,
+                    "".join(pending_text),
+                    blocks,
+                    paragraph_index=paragraph_index,
+                    segment=segment,
+                )
+        elif isinstance(block, Table):
+            table_index += 1
+            rendered = _markdown_table(block)
+            if rendered:
+                blocks.append(SourceBlock("DOCX_TABLE", rendered, {"table": table_index}))
+            for relationship_id in _image_relationship_ids(block._element):
+                _append_docx_image(
+                    document,
+                    relationship_id,
+                    blocks,
+                    ocr_units,
+                    {"table": table_index},
+                )
 
-    result = "\n\n".join(blocks).strip()
-    if not result and not images:
+    result = "\n\n".join(block.content for block in blocks if block.content).strip()
+    if not result and not ocr_units:
         raise IngestionParseError("DOCX_EMPTY", "DOCX 中没有可提取的文字或图片")
-    return ParseResult(content=result, embedded_images=images)
+    return ParseResult(content=result, blocks=blocks, ocr_units=ocr_units)
 
 
 def convert_legacy_doc(content: bytes, *, timeout_seconds: float = 60.0) -> bytes:
@@ -266,4 +434,9 @@ def extract_webpage(content: bytes, source_url: str) -> ParseResult:
         title = None
     if not title:
         title = urlsplit(source_url).hostname
-    return ParseResult(content=markdown.strip(), title=title)
+    normalized = markdown.strip()
+    return ParseResult(
+        content=normalized,
+        blocks=[SourceBlock("WEB_DOCUMENT", normalized, {"url": source_url})],
+        title=title,
+    )
