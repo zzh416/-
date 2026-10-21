@@ -15,14 +15,8 @@ def test_glm_text_parses_strict_structured_output() -> None:
     payload = {
         "items": [
             {
-                "question_block_ordinal": 0,
-                "question_start": 0,
-                "question_end": 8,
-                "question_quote": "什么是 GIL？",
-                "answer_block_ordinal": None,
-                "answer_start": None,
-                "answer_end": None,
-                "answer_quote": None,
+                "question": {"block_ordinal": 0, "quote": "什么是 GIL？"},
+                "answer_spans": [],
                 "confidence": 0.91,
             }
         ]
@@ -47,22 +41,16 @@ def test_glm_text_parses_strict_structured_output() -> None:
             model="glm-test",
             client=client,
         )
-    assert result[0].question_quote == "什么是 GIL？"
-    assert result[0].answer_quote is None
+    assert result[0].question.quote == "什么是 GIL？"
+    assert result[0].answer_spans == []
 
 
-def test_glm_text_rejects_partial_answer_location() -> None:
+def test_glm_text_rejects_incomplete_answer_span() -> None:
     bad_payload = {
         "items": [
             {
-                "question_block_ordinal": 0,
-                "question_start": 0,
-                "question_end": 2,
-                "question_quote": "问题",
-                "answer_block_ordinal": 0,
-                "answer_start": None,
-                "answer_end": None,
-                "answer_quote": "答案",
+                "question": {"block_ordinal": 0, "quote": "问题"},
+                "answer_spans": [{"quote": "答案"}],
                 "confidence": 1,
             }
         ]
@@ -85,19 +73,48 @@ def test_glm_text_rejects_partial_answer_location() -> None:
     assert error.value.code == "TEXT_MODEL_INVALID_RESPONSE"
 
 
-def test_glm_text_normalizes_explicit_zero_length_empty_answer() -> None:
+def test_glm_text_rejects_blank_source_quote() -> None:
+    bad_payload = {
+        "items": [
+            {
+                "question": {"block_ordinal": 0, "quote": "   "},
+                "answer_spans": [],
+                "confidence": 1,
+            }
+        ]
+    }
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"finish_reason": "stop", "message": {"content": json.dumps(bad_payload)}}
+                ]
+            },
+        )
+    )
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(TextModelError) as error:
+            extract_questions_with_glm(
+                [ExtractionBlock(ordinal=0, content="问题")],
+                api_key="test-key",
+                base_url="https://example.test/v4",
+                model="glm-test",
+                client=client,
+            )
+    assert error.value.code == "TEXT_MODEL_INVALID_RESPONSE"
+
+
+def test_glm_text_accepts_multi_block_answer_spans() -> None:
     payload = {
         "items": [
             {
-                "question_block_ordinal": 0,
-                "question_start": 0,
-                "question_end": 2,
-                "question_quote": "问题",
-                "answer_block_ordinal": 0,
-                "answer_start": 2,
-                "answer_end": 2,
-                "answer_quote": "",
-                "confidence": 0,
+                "question": {"block_ordinal": 0, "quote": "问题"},
+                "answer_spans": [
+                    {"block_ordinal": 1, "quote": "答案第一段"},
+                    {"block_ordinal": 2, "quote": "答案第二段"},
+                ],
+                "confidence": 0.9,
             }
         ]
     }
@@ -109,14 +126,17 @@ def test_glm_text_normalizes_explicit_zero_length_empty_answer() -> None:
     )
     with httpx.Client(transport=transport) as client:
         result = extract_questions_with_glm(
-            [ExtractionBlock(ordinal=0, content="问题")],
+            [
+                ExtractionBlock(ordinal=0, content="问题"),
+                ExtractionBlock(ordinal=1, content="答案第一段"),
+                ExtractionBlock(ordinal=2, content="答案第二段"),
+            ],
             api_key="test-key",
             base_url="https://example.test/v4",
             model="glm-test",
             client=client,
         )
-    assert result[0].answer_quote is None
-    assert result[0].answer_start is None
+    assert [span.quote for span in result[0].answer_spans] == ["答案第一段", "答案第二段"]
 
 
 def test_glm_text_requires_api_key() -> None:

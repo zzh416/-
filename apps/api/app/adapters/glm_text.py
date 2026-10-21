@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 
 class TextModelNotConfigured(RuntimeError):
@@ -25,37 +25,26 @@ class ExtractionBlock:
     content: str
 
 
+class ExtractedSpan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    block_ordinal: int = Field(ge=0)
+    quote: str = Field(min_length=1, max_length=20_000)
+
+    @field_validator("quote")
+    @classmethod
+    def quote_must_contain_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("quote must contain non-whitespace text")
+        return value
+
+
 class ExtractedPair(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    question_block_ordinal: int = Field(ge=0)
-    question_start: int = Field(ge=0)
-    question_end: int = Field(gt=0)
-    question_quote: str = Field(min_length=1, max_length=20_000)
-    answer_block_ordinal: int | None = Field(default=None, ge=0)
-    answer_start: int | None = Field(default=None, ge=0)
-    answer_end: int | None = Field(default=None, gt=0)
-    answer_quote: str | None = Field(default=None, min_length=1, max_length=100_000)
+    question: ExtractedSpan
+    answer_spans: list[ExtractedSpan] = Field(default_factory=list, max_length=40)
     confidence: float = Field(ge=0, le=1)
-
-    @model_validator(mode="after")
-    def valid_ranges(self) -> "ExtractedPair":
-        if self.question_end <= self.question_start:
-            raise ValueError("question_end 必须大于 question_start")
-        answer_values = (
-            self.answer_block_ordinal,
-            self.answer_start,
-            self.answer_end,
-            self.answer_quote,
-        )
-        if any(value is not None for value in answer_values) and not all(
-            value is not None for value in answer_values
-        ):
-            raise ValueError("答案位置和值必须同时存在或同时为空")
-        if self.answer_start is not None and self.answer_end is not None:
-            if self.answer_end <= self.answer_start:
-                raise ValueError("answer_end 必须大于 answer_start")
-        return self
 
 
 class ExtractionResponse(BaseModel):
@@ -64,35 +53,15 @@ class ExtractionResponse(BaseModel):
     items: list[ExtractedPair] = Field(default_factory=list, max_length=500)
 
 
-def _normalize_empty_answers(payload: object) -> object:
-    """GLM 偶尔用空字符串和零长度范围表达“无答案”。
-
-    只把明确的零长度空答案归一为 null；其他不完整位置仍由严格 Schema 拒绝。
-    """
-    if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-        return payload
-    for item in payload["items"]:
-        if not isinstance(item, dict):
-            continue
-        if (
-            item.get("answer_quote") == ""
-            and isinstance(item.get("answer_start"), int)
-            and item.get("answer_start") == item.get("answer_end")
-        ):
-            item["answer_block_ordinal"] = None
-            item["answer_start"] = None
-            item["answer_end"] = None
-            item["answer_quote"] = None
-    return payload
-
-
 SYSTEM_PROMPT = """你是面试资料结构化提取器。只抽取输入块中明确出现的问题及其原文答案。
 必须返回单个 JSON 对象，格式为 {"items": [...]}，不得返回 Markdown。
-每项必须包含 question_block_ordinal、question_start、question_end、question_quote、
-answer_block_ordinal、answer_start、answer_end、answer_quote、confidence。
-start/end 是对应块内从 0 开始、左闭右开的字符下标；quote 必须逐字等于该范围原文。
-如果资料只有问题或无法确定答案归属，四个 answer 字段全部为 null。
-不得补写、改写、解释或根据常识生成答案。标题不是问题时不要抽取。"""
+每项格式为 {"question":{"block_ordinal":整数,"quote":"原文"},
+"answer_spans":[{"block_ordinal":整数,"quote":"原文"}],"confidence":0到1}。
+question.quote 必须逐字复制问题所在块的原文片段。
+答案可以跨多个块；answer_spans 按阅读顺序列出每段答案的块序号和逐字原文。
+如果资料只有问题或无法确定答案归属，answer_spans 必须是空数组。
+“什么是…”等问句、编号问句以及以知识点命名且正文紧随其后的标题都可作为问题。
+不得补写、改写、解释或根据常识生成答案，也不得把下一道题算进上一题答案。"""
 
 
 def extract_questions_with_glm(
@@ -168,7 +137,7 @@ def extract_questions_with_glm(
                     retryable=True,
                 )
             raw_content = choice["message"]["content"]
-            parsed = _normalize_empty_answers(json.loads(raw_content))
+            parsed = json.loads(raw_content)
             result = ExtractionResponse.model_validate(parsed)
         except TextModelError:
             raise

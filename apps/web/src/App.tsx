@@ -974,6 +974,8 @@ function App() {
                     ? 'error'
                     : extractionRun.data.status === 'WAITING_FOR_CONFIGURATION'
                       ? 'warning'
+                    : extractionRun.data.status === 'PARTIAL_SUCCESS'
+                      ? 'warning'
                     : extractionRun.data.status === 'SUCCEEDED'
                       ? 'success'
                       : 'info'
@@ -982,6 +984,8 @@ function App() {
                 title={
                   extractionRun.data.status === 'SUCCEEDED'
                     ? '题目自动整理完成'
+                    : extractionRun.data.status === 'PARTIAL_SUCCESS'
+                      ? '题目自动整理部分完成'
                     : extractionRun.data.status === 'WAITING_FOR_CONFIGURATION'
                       ? '等待 GLM 配置'
                       : extractionRun.data.status === 'FAILED'
@@ -989,8 +993,10 @@ function App() {
                         : '正在自动整理题目'
                 }
                 description={
-                  extractionRun.data.status === 'SUCCEEDED'
-                    ? `共 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。结果均为待复核。`
+                  extractionRun.data.status === 'PARTIAL_SUCCESS'
+                    ? `已保存 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。${extractionRun.data.errorMessage ?? '部分内容未能识别'}。结果均为待复核。`
+                    : extractionRun.data.status === 'SUCCEEDED'
+                      ? `共 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。结果均为待复核。`
                     : extractionRun.data.errorMessage ?? '系统只会提取原文答案，不会生成缺失答案。'
                 }
               />

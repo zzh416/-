@@ -33,6 +33,14 @@ class QuestionExtractionRunView(APIModel):
     finished_at: datetime | None
 
 
+class AnswerSourceSpanView(APIModel):
+    source_chunk_id: UUID
+    block_ordinal: int
+    start: int
+    end: int
+    quote: str
+
+
 class QuestionOccurrenceView(APIModel):
     id: UUID
     question_id: UUID
@@ -46,6 +54,7 @@ class QuestionOccurrenceView(APIModel):
     answer_end: int | None
     question_quote: str
     answer_quote: str | None
+    answer_spans: list[AnswerSourceSpanView]
     confidence: float
     review_status: Literal["PENDING", "CONFIRMED", "REJECTED"]
     created_at: datetime

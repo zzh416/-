@@ -238,6 +238,7 @@ class QuestionOccurrence(Base):
     answer_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     question_quote: Mapped[str] = mapped_column(Text)
     answer_quote: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_spans: Mapped[list[dict]] = mapped_column(JSON, default=list, server_default="[]")
     confidence: Mapped[float] = mapped_column(Float)
     review_status: Mapped[str] = mapped_column(
         String(24), default="PENDING", server_default="PENDING"
