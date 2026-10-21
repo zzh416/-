@@ -32,10 +32,18 @@ from app.workers.celery_app import celery_app
 
 router = APIRouter(tags=["question-extractions"])
 
-_QUESTION_PATTERN = re.compile(
-    r"(?:什么是|为什么|为何|如何|怎么|怎样|说说|介绍|区别|原理|作用|流程|是否|哪些|哪种|能否)"
+_QUESTION_LEAD_PATTERN = re.compile(
+    r"^(?:(?:[-*+>]\s*)|(?:\d+[.、)）]\s*))*"
+    r"(?:\*{1,2})?"
+    r"(?:什么是|为什么|为何|如何|怎么|怎样|说说|介绍(?:一下)?|请介绍|谈谈|"
+    r"是否|哪些|哪种|哪几|能否|有什么|什么情况下|什么时候)"
 )
-_HEADING_PATTERN = re.compile(r"^\s{0,3}#{1,6}\s+\S")
+_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})\s+(\S.*)$")
+_NUMBERED_TITLE_PATTERN = re.compile(r"^(?:\*{1,2})?\d+[.、)）]\s*\S")
+_TITLE_QUESTION_HINT_PATTERN = re.compile(
+    r"(?:区别|对比|原理|作用|流程|过程|方式|机制|定义|分类|特点|优缺点|"
+    r"场景|优化|调优|实现|攻击|问题)"
+)
 
 
 def _owned_run(db: Session, run_id: UUID, owner_id: UUID) -> QuestionExtractionRun:
@@ -123,11 +131,35 @@ def _suspected_misses(
             if not stripped or end <= start:
                 continue
             reason = None
-            if "？" in stripped or "?" in stripped:
+            candidate_text = re.sub(r"\]\([^)]*\)", "]", stripped)
+            candidate_text = re.sub(r"https?://\S+", "", candidate_text)
+            question_mark_positions = [
+                position
+                for position in (candidate_text.find("？"), candidate_text.find("?"))
+                if position >= 0
+            ]
+            first_question_mark = min(question_mark_positions, default=-1)
+            heading = _HEADING_PATTERN.match(line)
+            heading_level = len(heading.group(1)) if heading else 0
+            heading_text = heading.group(2).strip() if heading else ""
+            if 0 <= first_question_mark <= 120:
                 reason = "QUESTION_MARK"
-            elif _HEADING_PATTERN.match(line) and len(stripped) <= 160:
+            elif (
+                heading
+                and len(stripped) <= 160
+                and (
+                    _QUESTION_LEAD_PATTERN.search(heading_text)
+                    or (
+                        _NUMBERED_TITLE_PATTERN.match(heading_text)
+                        and (
+                            heading_level >= 3
+                            or _TITLE_QUESTION_HINT_PATTERN.search(heading_text)
+                        )
+                    )
+                )
+            ):
                 reason = "HEADING"
-            elif len(stripped) <= 160 and _QUESTION_PATTERN.search(stripped):
+            elif len(stripped) <= 160 and _QUESTION_LEAD_PATTERN.search(candidate_text):
                 reason = "QUESTION_PATTERN"
             if reason is None:
                 continue

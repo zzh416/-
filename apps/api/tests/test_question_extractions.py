@@ -46,7 +46,10 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         "零拷贝减少用户态与内核态之间的数据复制。\n\n"
         "常见实现包括 mmap 和 sendfile。\n\n"
         "#### 32.I/O 多路复用\n\n"
-        "#### 33.什么是描述符协议"
+        "#### 33.什么是描述符协议\n\n"
+        "## 一、普通章节\n\n"
+        "作用：说明为什么它很重要。\n\n"
+        "[后台运行](https://example.com/search?q=test) 是一种运行方式。"
     )
     try:
         asset = client.post(
@@ -87,7 +90,7 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         second_question = "#### 32.I/O 多路复用"
 
         def fake_extractor(blocks, **kwargs):
-            assert [block.ordinal for block in blocks] == [0, 1, 2, 3, 4]
+            assert [block.ordinal for block in blocks] == [0, 1, 2, 3, 4, 5, 6, 7]
             return [
                 ExtractedPair(
                     question=ExtractedSpan(block_ordinal=0, quote=first_question),
@@ -145,6 +148,7 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         assert review_payload["pendingCount"] == 2
         assert review_payload["confirmedCount"] == 0
         assert review_payload["rejectedCount"] == 0
+        assert len(review_payload["suspectedMisses"]) == 1
         suspected_miss = review_payload["suspectedMisses"][0]
         assert suspected_miss["quote"] == "#### 33.什么是描述符协议"
 
