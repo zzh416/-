@@ -42,6 +42,7 @@ import {
   uploadTextAsset,
   upsertAnswer,
   upsertNote,
+  type AnswerFilter,
   type CollectionPurpose,
   type AssetSummary,
   type Question,
@@ -124,6 +125,13 @@ const canRetryAsset = (asset: AssetSummary) =>
       asset.job.retryCount < 3,
   )
 
+const formatLocator = (locator: Record<string, unknown>) => {
+  if (typeof locator.page === 'number') return `PDF 第 ${locator.page} 页`
+  if (typeof locator.paragraph === 'number') return `Word 第 ${locator.paragraph} 段`
+  if (typeof locator.table === 'number') return `Word 第 ${locator.table} 个表格`
+  return '未定位的内容块'
+}
+
 function App() {
   const queryClient = useQueryClient()
   const [collectionForm] = Form.useForm<CollectionForm>()
@@ -146,6 +154,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('assets')
   const [searchDraft, setSearchDraft] = useState('')
   const [search, setSearch] = useState('')
+  const [answerFilter, setAnswerFilter] = useState<AnswerFilter>('ANY')
   const [page, setPage] = useState(1)
 
   const health = useQuery({
@@ -174,11 +183,12 @@ function App() {
       query.state.data && isPendingAsset(query.state.data) ? 2_000 : false,
   })
   const questions = useQuery({
-    queryKey: ['questions', activeCollectionId, search, page],
+    queryKey: ['questions', activeCollectionId, search, answerFilter, page],
     queryFn: () =>
       fetchQuestions({
         collectionId: activeCollectionId ?? undefined,
         q: search || undefined,
+        answerState: answerFilter,
         page,
       }),
     enabled: Boolean(activeCollectionId),
@@ -469,24 +479,52 @@ function App() {
           新建题目
         </Button>
       </div>
-      <Input.Search
-        className="question-search"
-        allowClear
-        value={searchDraft}
-        placeholder="搜索 Python、MySQL、缓存穿透……"
-        enterButton="搜索"
-        onChange={(event) => setSearchDraft(event.target.value)}
-        onSearch={(value) => {
-          setSearch(value.trim())
-          setPage(1)
-        }}
-      />
+      <div className="question-controls">
+        <Input.Search
+          className="question-search"
+          allowClear
+          value={searchDraft}
+          placeholder="搜索 Python、MySQL、缓存穿透……"
+          enterButton="搜索"
+          onChange={(event) => setSearchDraft(event.target.value)}
+          onSearch={(value) => {
+            setSearch(value.trim())
+            setPage(1)
+          }}
+        />
+        <Radio.Group
+          aria-label="按答案状态筛选"
+          optionType="button"
+          buttonStyle="solid"
+          value={answerFilter}
+          onChange={(event) => {
+            setAnswerFilter(event.target.value as AnswerFilter)
+            setPage(1)
+          }}
+        >
+          <Radio.Button value="ANY">
+            全部 {(questions.data?.answeredCount ?? 0) + (questions.data?.missingCount ?? 0)}
+          </Radio.Button>
+          <Radio.Button value="ANSWERED">有答案 {questions.data?.answeredCount ?? 0}</Radio.Button>
+          <Radio.Button value="MISSING">无答案 {questions.data?.missingCount ?? 0}</Radio.Button>
+        </Radio.Group>
+      </div>
       {questions.isLoading && <Skeleton active paragraph={{ rows: 8 }} />}
       {questions.isError && (
         <Alert type="error" showIcon title="问答加载失败" description={questions.error.message} />
       )}
       {questions.data?.items.length === 0 && (
-        <Empty description={search ? '没有匹配的问答' : '还没有问答'} />
+        <Empty
+          description={
+            search
+              ? '没有匹配的问答'
+              : answerFilter === 'ANSWERED'
+                ? '还没有带答案的问题'
+                : answerFilter === 'MISSING'
+                  ? '没有待补充答案的问题'
+                  : '还没有问答'
+          }
+        />
       )}
       <div className="question-list">
         {questions.data?.items.map((question, index) => (
@@ -499,6 +537,9 @@ function App() {
                   : question.sourceType === 'SOURCE_REMOVED'
                     ? '来源已删除'
                     : '手动整理'}
+              </Tag>
+              <Tag color={question.answerState === 'MISSING' ? 'orange' : 'green'}>
+                {question.answerState === 'MISSING' ? '无答案' : '有答案'}
               </Tag>
             </div>
             <SafeMarkdown className="question-text">{question.prompt}</SafeMarkdown>
@@ -864,6 +905,18 @@ function App() {
                   ) : undefined
                 }
               />
+            )}
+            {(assetDetail.data.job?.unitFailures.length ?? 0) > 0 && (
+              <div className="unit-failures" role="status">
+                <Typography.Text strong>尚未识别的位置</Typography.Text>
+                <ul>
+                  {assetDetail.data.job!.unitFailures.map((failure, index) => (
+                    <li key={`${failure.code}-${index}`}>
+                      {formatLocator(failure.locator)}：{failure.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             <Divider />
             {isAssetEditing ? (

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, computed_field, field_validator
 
 from app.schemas.common import APIModel
 
@@ -66,9 +66,16 @@ class QuestionView(APIModel):
     created_at: datetime
     updated_at: datetime
 
+    @computed_field
+    @property
+    def answer_state(self) -> Literal["MISSING", "SOURCE_ANSWER"]:
+        return "SOURCE_ANSWER" if self.answer is not None else "MISSING"
+
 
 class QuestionPage(APIModel):
     items: list[QuestionView]
     page: int
     page_size: int
     total: int
+    answered_count: int
+    missing_count: int

@@ -190,9 +190,34 @@ textarea {
   margin-bottom: 1rem;
 }
 
+.unit-failures {
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  color: #613400;
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+  border-radius: 0.5rem;
+}
+
+.unit-failures ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
 .question-search {
   max-width: 44rem;
+}
+
+.question-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
   margin-bottom: 1.25rem;
+}
+
+.question-controls .question-search {
+  flex: 1 1 24rem;
 }
 
 .question-list {

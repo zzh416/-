@@ -82,6 +82,12 @@ class AssetUrlCreate(APIModel):
         return value.strip()
 
 
+class IngestionUnitFailureView(APIModel):
+    code: str
+    message: str
+    locator: dict
+
+
 class IngestionJobView(APIModel):
     id: UUID
     status: JobStatus
@@ -91,7 +97,7 @@ class IngestionJobView(APIModel):
     retry_count: int
     error_code: str | None
     error_message: str | None
-    unit_failures: list[dict]
+    unit_failures: list[IngestionUnitFailureView]
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None

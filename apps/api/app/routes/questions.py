@@ -1,4 +1,5 @@
 """问题、答案、备注与关键词检索。"""
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -125,6 +126,9 @@ def create_question(
 def list_questions(
     q: str | None = None,
     collection_id: UUID | None = Query(default=None, alias="collectionId"),
+    answer_state: Literal["ANY", "ANSWERED", "MISSING"] = Query(
+        default="ANY", alias="answerState"
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100, alias="pageSize"),
     db: Session = Depends(get_db),
@@ -137,19 +141,42 @@ def list_questions(
         pattern = f"%{q.strip()}%"
         filters.append(or_(Question.prompt.ilike(pattern), Answer.content.ilike(pattern)))
 
+    answered_count = db.scalar(
+        select(func.count(Question.id))
+        .outerjoin(Answer)
+        .where(*filters, Answer.id.is_not(None))
+    ) or 0
+    missing_count = db.scalar(
+        select(func.count(Question.id))
+        .outerjoin(Answer)
+        .where(*filters, Answer.id.is_(None))
+    ) or 0
+    page_filters = list(filters)
+    if answer_state == "ANSWERED":
+        page_filters.append(Answer.id.is_not(None))
+    elif answer_state == "MISSING":
+        page_filters.append(Answer.id.is_(None))
+
     total = db.scalar(
-        select(func.count(Question.id)).outerjoin(Answer).where(*filters)
+        select(func.count(Question.id)).outerjoin(Answer).where(*page_filters)
     ) or 0
     items = db.scalars(
         select(Question)
         .outerjoin(Answer)
-        .where(*filters)
+        .where(*page_filters)
         .options(selectinload(Question.answer), selectinload(Question.note))
         .order_by(Question.updated_at.desc(), Question.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
-    return QuestionPage(items=list(items), page=page, page_size=page_size, total=total)
+    return QuestionPage(
+        items=list(items),
+        page=page,
+        page_size=page_size,
+        total=total,
+        answered_count=answered_count,
+        missing_count=missing_count,
+    )
 
 
 @router.get("/{question_id}", response_model=QuestionView)

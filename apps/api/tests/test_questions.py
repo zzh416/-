@@ -116,6 +116,58 @@ def test_question_can_have_no_answer_and_is_owner_scoped() -> None:
         client.delete(f"/api/v1/collections/{collection_id}")
 
 
+def test_question_list_filters_answer_state_and_returns_counts() -> None:
+    collection_id = _create_collection()
+    question_ids: list[str] = []
+    try:
+        answered = client.post(
+            "/api/v1/questions",
+            json={
+                "collectionId": collection_id,
+                "prompt": "Python 装饰器是什么？",
+                "answer": "装饰器用于包装可调用对象。",
+            },
+        ).json()
+        missing = client.post(
+            "/api/v1/questions",
+            json={"collectionId": collection_id, "prompt": "解释 Python 描述符协议。"},
+        ).json()
+        question_ids.extend([answered["id"], missing["id"]])
+
+        all_questions = client.get(
+            "/api/v1/questions",
+            params={"collectionId": collection_id, "answerState": "ANY"},
+        )
+        assert all_questions.status_code == 200
+        assert all_questions.json()["answeredCount"] == 1
+        assert all_questions.json()["missingCount"] == 1
+        states = {item["id"]: item["answerState"] for item in all_questions.json()["items"]}
+        assert states[answered["id"]] == "SOURCE_ANSWER"
+        assert states[missing["id"]] == "MISSING"
+
+        answered_only = client.get(
+            "/api/v1/questions",
+            params={"collectionId": collection_id, "answerState": "ANSWERED"},
+        ).json()
+        assert [item["id"] for item in answered_only["items"]] == [answered["id"]]
+        assert answered_only["total"] == 1
+        assert answered_only["answeredCount"] == 1
+        assert answered_only["missingCount"] == 1
+
+        missing_only = client.get(
+            "/api/v1/questions",
+            params={"collectionId": collection_id, "answerState": "MISSING"},
+        ).json()
+        assert [item["id"] for item in missing_only["items"]] == [missing["id"]]
+
+        invalid = client.get("/api/v1/questions", params={"answerState": "UNKNOWN"})
+        assert invalid.status_code == 422
+    finally:
+        for question_id in question_ids:
+            client.delete(f"/api/v1/questions/{question_id}")
+        client.delete(f"/api/v1/collections/{collection_id}")
+
+
 def test_pagination_limits_and_blank_question_validation() -> None:
     blank = client.post("/api/v1/questions", json={"prompt": "   "})
     assert blank.status_code == 422

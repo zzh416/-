@@ -37,6 +37,12 @@ export type AssetStatus =
   | 'WAITING_FOR_CONFIGURATION'
   | 'FAILED'
 
+export interface IngestionUnitFailure {
+  code: string
+  message: string
+  locator: Record<string, unknown>
+}
+
 export interface IngestionJob {
   id: string
   status: 'QUEUED' | 'PROCESSING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'WAITING_FOR_CONFIGURATION' | 'FAILED'
@@ -46,6 +52,7 @@ export interface IngestionJob {
   retryCount: number
   errorCode: string | null
   errorMessage: string | null
+  unitFailures: IngestionUnitFailure[]
   createdAt: string
   updatedAt: string
   startedAt: string | null
@@ -81,6 +88,8 @@ export interface TextChunk {
   content: string
   startOffset: number
   endOffset: number
+  blockType: string
+  locator: Record<string, unknown>
 }
 
 export interface AssetDetail extends AssetSummary {
@@ -116,6 +125,7 @@ export interface Question {
   prompt: string
   version: number
   answer: Answer | null
+  answerState: 'MISSING' | 'SOURCE_ANSWER'
   note: QuestionNote | null
   createdAt: string
   updatedAt: string
@@ -126,7 +136,11 @@ export interface QuestionPage {
   page: number
   pageSize: number
   total: number
+  answeredCount: number
+  missingCount: number
 }
+
+export type AnswerFilter = 'ANY' | 'ANSWERED' | 'MISSING'
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
@@ -223,12 +237,14 @@ export const deleteAsset = (assetId: string) =>
 export const fetchQuestions = (input: {
   collectionId?: string
   q?: string
+  answerState?: AnswerFilter
   page?: number
   pageSize?: number
 }) => {
   const params = new URLSearchParams()
   if (input.collectionId) params.set('collectionId', input.collectionId)
   if (input.q) params.set('q', input.q)
+  if (input.answerState) params.set('answerState', input.answerState)
   params.set('page', String(input.page ?? 1))
   params.set('pageSize', String(input.pageSize ?? 20))
   return apiRequest<QuestionPage>(`/api/v1/questions?${params.toString()}`)
