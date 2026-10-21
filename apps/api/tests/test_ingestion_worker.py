@@ -6,8 +6,9 @@ from docx import Document
 from fastapi.testclient import TestClient
 
 from app.adapters.glm_ocr import OCRNotConfigured, OCRResult
+from app.adapters.browser_renderer import RenderedPage
 from app.main import app
-from app.modules.safe_web import FetchedDocument
+from app.modules.safe_web import FetchedDocument, SafeWebError
 from app.modules.ingestion_service import process_ingestion_job
 
 
@@ -154,6 +155,105 @@ def test_worker_fetches_public_webpage_and_persists_snapshot_metadata() -> None:
         assert detail["byteSize"] == len(html)
         assert detail["fetchedAt"] is not None
         assert "processes and threads" in detail["content"]
+    finally:
+        if asset_id is not None:
+            client.delete(f"/api/v1/assets/{asset_id}")
+        client.delete(f"/api/v1/collections/{collection_id}")
+
+
+def test_worker_falls_back_to_browser_for_javascript_page() -> None:
+    collection_id = _create_collection()
+    asset_id: str | None = None
+    browser_calls: list[str] = []
+    shell = b"""
+    <html><head><title>Dynamic shell</title></head><body>
+      <div id="app"></div><script src="/assets/app.js"></script>
+    </body></html>
+    """
+    rendered = b"""
+    <html><head><title>Rendered Interview Notes</title></head><body><article>
+      <h1>Python async interview</h1>
+      <p>An event loop schedules coroutines and resumes them when IO is ready.</p>
+      <p>This rendered paragraph only exists after JavaScript execution.</p>
+    </article></body></html>
+    """
+
+    try:
+        with patch("app.workers.celery_app.celery_app.send_task"):
+            created = client.post(
+                f"/api/v1/collections/{collection_id}/assets/url",
+                json={"url": "https://example.com/dynamic"},
+            )
+        asset_id = created.json()["id"]
+
+        def browser_renderer(url: str, **kwargs) -> RenderedPage:
+            browser_calls.append(url)
+            return RenderedPage(
+                url=url,
+                content_type="text/html",
+                content=rendered,
+                title="Rendered Interview Notes",
+            )
+
+        process_ingestion_job(
+            UUID(created.json()["job"]["id"]),
+            web_fetcher=lambda *args, **kwargs: FetchedDocument(
+                url="https://example.com/dynamic",
+                content_type="text/html",
+                content=shell,
+            ),
+            browser_renderer=browser_renderer,
+        )
+
+        detail = client.get(f"/api/v1/assets/{asset_id}").json()
+        assert browser_calls == ["https://example.com/dynamic"]
+        assert detail["status"] == "READY"
+        assert detail["title"] == "Rendered Interview Notes"
+        assert detail["byteSize"] == len(rendered)
+        assert "event loop schedules coroutines" in detail["content"]
+    finally:
+        if asset_id is not None:
+            client.delete(f"/api/v1/assets/{asset_id}")
+        client.delete(f"/api/v1/collections/{collection_id}")
+
+
+def test_worker_falls_back_to_browser_when_static_fetch_redirects() -> None:
+    collection_id = _create_collection()
+    asset_id: str | None = None
+    rendered = b"""
+    <html><head><title>Canonical Article</title></head><body><article>
+      <h1>Python descriptors</h1>
+      <p>A descriptor defines get, set, or delete behavior for an attribute.</p>
+      <p>Functions implement the descriptor protocol to create bound methods.</p>
+    </article></body></html>
+    """
+
+    try:
+        with patch("app.workers.celery_app.celery_app.send_task"):
+            created = client.post(
+                f"/api/v1/collections/{collection_id}/assets/url",
+                json={"url": "https://example.com/redirecting-article"},
+            )
+        asset_id = created.json()["id"]
+
+        def redirected(*args, **kwargs):
+            raise SafeWebError("WEB_REDIRECT_BLOCKED", "redirect")
+
+        process_ingestion_job(
+            UUID(created.json()["job"]["id"]),
+            web_fetcher=redirected,
+            browser_renderer=lambda url, **kwargs: RenderedPage(
+                url="https://www.example.com/canonical-article",
+                content_type="text/html",
+                content=rendered,
+                title="Canonical Article",
+            ),
+        )
+
+        detail = client.get(f"/api/v1/assets/{asset_id}").json()
+        assert detail["status"] == "READY"
+        assert detail["title"] == "Canonical Article"
+        assert "descriptor protocol" in detail["content"]
     finally:
         if asset_id is not None:
             client.delete(f"/api/v1/assets/{asset_id}")

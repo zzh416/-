@@ -97,6 +97,7 @@ const statusLabels: Record<string, string> = {
 const stageLabels: Record<string, string> = {
   STORED: '文件已保存',
   FETCHING: '正在抓取网页',
+  RENDERING: '正在运行网页脚本',
   EXTRACTING: '正在提取文字',
   OCR: '正在识别图片',
   CONFIGURATION: '等待 OCR 配置',
@@ -367,7 +368,7 @@ function App() {
         <div>
           <Typography.Title level={2}>资料导入</Typography.Title>
           <Typography.Text type="secondary">
-            支持文字、图片、PDF、Word 和公开静态网页；文件上限 25 MiB，PDF 最多 100 页
+            支持文字、图片、PDF、Word，以及公开静态或 JavaScript 网页；文件上限 25 MiB，PDF 最多 100 页
           </Typography.Text>
         </div>
         <Space wrap>
@@ -731,8 +732,8 @@ function App() {
           className="form-hint"
           type="info"
           showIcon
-          title="目前支持无需登录、无需运行 JavaScript 的公开网页"
-          description="动态网页或受访问限制的页面可以改用粘贴文字、截图或文件上传。"
+          title="支持公开静态网页和 JavaScript 动态网页"
+          description="系统会自动选择提取方式。需要登录、验证码，或链接没有记录当前章节时，请改用粘贴文字、截图或文件上传。"
         />
         <Form<UrlForm>
           form={urlForm}

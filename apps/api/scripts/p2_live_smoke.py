@@ -13,6 +13,7 @@ import httpx
 from docx import Document
 
 BASE_URL = os.getenv("P2_SMOKE_BASE_URL", "http://127.0.0.1:9000/api/v1")
+DYNAMIC_WEB_URL = os.getenv("P25_DYNAMIC_SMOKE_URL", "https://spa1.scrape.center/")
 TERMINAL_STATUSES = {
     "READY",
     "PARTIAL_SUCCESS",
@@ -33,7 +34,7 @@ def wait_for_api(client: httpx.Client) -> None:
 
 
 def wait_for_asset(client: httpx.Client, asset_id: str) -> dict:
-    for _ in range(60):
+    for _ in range(120):
         response = client.get(f"{BASE_URL}/assets/{asset_id}")
         response.raise_for_status()
         payload = response.json()
@@ -135,6 +136,19 @@ def main() -> None:
             assert web_result["fetchedAt"]
             assert web_result["content"].strip()
             print("Public web queue: READY")
+
+            submitted_dynamic_url = client.post(
+                f"{BASE_URL}/collections/{collection_id}/assets/url",
+                headers={"Idempotency-Key": str(uuid4())},
+                json={"url": DYNAMIC_WEB_URL, "title": "P2.5 dynamic web smoke"},
+            )
+            submitted_dynamic_url.raise_for_status()
+            asset_ids.append(submitted_dynamic_url.json()["id"])
+            dynamic_result = wait_for_asset(client, asset_ids[-1])
+            assert dynamic_result["status"] == "READY", dynamic_result["job"]
+            assert dynamic_result["fetchedAt"]
+            assert len(dynamic_result["content"].strip()) >= 100
+            print("Dynamic public web queue: READY")
 
             if not os.getenv("GLM_API_KEY"):
                 uploaded = client.post(

@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     max_pdf_content_stream_bytes: int = 32 * 1024 * 1024
     ingestion_http_timeout_seconds: float = 20.0
     ingestion_retry_limit: int = 3
+    renderer_url: str = "http://renderer:9100"
+    renderer_timeout_seconds: float = 30.0
 
     # 模型网关 —— 默认 GLM，DeepSeek 降级
     glm_api_key: str = Field(default="", repr=False)

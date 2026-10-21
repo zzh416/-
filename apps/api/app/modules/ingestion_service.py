@@ -17,6 +17,11 @@ from app.adapters.glm_ocr import (
     OCRServiceError,
     extract_with_glm_ocr,
 )
+from app.adapters.browser_renderer import (
+    BrowserRenderError,
+    RenderedPage,
+    render_public_page,
+)
 from app.config import settings
 from app.db import SessionLocal
 from app.models import Asset, IngestionJob
@@ -36,6 +41,14 @@ logger = logging.getLogger(__name__)
 
 OCRExtractor = Callable[..., OCRResult]
 WebFetcher = Callable[..., FetchedDocument]
+BrowserRenderer = Callable[..., RenderedPage]
+StageReporter = Callable[[str], None]
+
+_BROWSER_FALLBACK_FETCH_ERRORS = {
+    "WEB_ACCESS_DENIED",
+    "WEB_ENCODING_UNSUPPORTED",
+    "WEB_REDIRECT_BLOCKED",
+}
 
 
 @dataclass(frozen=True)
@@ -100,20 +113,49 @@ def _extract(
     *,
     ocr_extractor: OCRExtractor,
     web_fetcher: WebFetcher,
+    browser_renderer: BrowserRenderer,
+    stage_reporter: StageReporter,
 ) -> _Processed:
     if asset.source_format == "WEB_PAGE":
         if not asset.source_url:
             raise IngestionParseError("WEB_URL_MISSING", "网页资料缺少来源地址")
-        fetched = web_fetcher(
-            asset.source_url,
-            max_bytes=settings.max_url_response_bytes,
-            timeout=settings.ingestion_http_timeout_seconds,
-        )
-        parsed = extract_webpage(fetched.content, fetched.url)
+        rendered_title: str | None = None
+        try:
+            fetched = web_fetcher(
+                asset.source_url,
+                max_bytes=settings.max_url_response_bytes,
+                timeout=settings.ingestion_http_timeout_seconds,
+            )
+            try:
+                parsed = extract_webpage(fetched.content, fetched.url)
+            except IngestionParseError as exc:
+                if exc.code != "WEB_CONTENT_EMPTY":
+                    raise
+                fetched = None
+        except SafeWebError as exc:
+            if exc.code not in _BROWSER_FALLBACK_FETCH_ERRORS:
+                raise
+            fetched = None
+
+        if fetched is None:
+            stage_reporter("RENDERING")
+            rendered = browser_renderer(
+                asset.source_url,
+                service_url=settings.renderer_url,
+                timeout_seconds=settings.renderer_timeout_seconds,
+                max_html_bytes=settings.max_url_response_bytes,
+            )
+            rendered_title = rendered.title
+            fetched = FetchedDocument(
+                url=rendered.url,
+                content_type=rendered.content_type,
+                content=rendered.content,
+            )
+            parsed = extract_webpage(fetched.content, fetched.url)
         return _Processed(
             content=parsed.content,
             fetched=fetched,
-            fetched_title=parsed.title,
+            fetched_title=parsed.title or rendered_title,
         )
 
     if not asset.storage_key:
@@ -186,11 +228,25 @@ def _mark_failure(job_id: UUID, status: str, code: str, message: str) -> None:
         db.commit()
 
 
+def _set_stage(job_id: UUID, stage: str) -> None:
+    with SessionLocal() as db:
+        job = db.scalar(
+            select(IngestionJob)
+            .where(IngestionJob.id == job_id)
+            .with_for_update()
+        )
+        if job is None or job.status != "PROCESSING":
+            return
+        job.stage = stage
+        db.commit()
+
+
 def process_ingestion_job(
     job_id: UUID,
     *,
     ocr_extractor: OCRExtractor = extract_with_glm_ocr,
     web_fetcher: WebFetcher = fetch_public_document,
+    browser_renderer: BrowserRenderer = render_public_page,
 ) -> None:
     with SessionLocal() as db:
         job = db.scalar(
@@ -223,6 +279,8 @@ def process_ingestion_job(
             snapshot,
             ocr_extractor=ocr_extractor,
             web_fetcher=web_fetcher,
+            browser_renderer=browser_renderer,
+            stage_reporter=lambda stage: _set_stage(job_id, stage),
         )
         if not processed.content.strip():
             raise IngestionParseError("EXTRACTED_TEXT_EMPTY", "没有提取到可用文字")
@@ -238,6 +296,9 @@ def process_ingestion_job(
         return
     except OCRServiceError as exc:
         _mark_failure(job_id, "FAILED", exc.code, str(exc))
+        return
+    except BrowserRenderError as exc:
+        _mark_failure(job_id, "FAILED", exc.code, exc.message)
         return
     except (IngestionParseError, SafeWebError) as exc:
         _mark_failure(job_id, "FAILED", exc.code, exc.message)

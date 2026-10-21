@@ -118,3 +118,17 @@ def test_webpage_extractor_returns_title_and_main_markdown() -> None:
     assert "global interpreter lock" in result.content
     assert "CPU-bound workloads" in result.content
     assert "Products Login Contact" not in result.content
+
+
+def test_webpage_extractor_rejects_javascript_shell_message() -> None:
+    html = b"""
+    <!doctype html><html><head><title>SPA</title></head><body>
+      <noscript>You need to enable JavaScript to run this app.</noscript>
+      <div id="root"></div><script src="/assets/app.js"></script>
+    </body></html>
+    """
+
+    with pytest.raises(IngestionParseError) as error:
+        extract_webpage(html, "https://example.com/app")
+
+    assert error.value.code == "WEB_CONTENT_EMPTY"

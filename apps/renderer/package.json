@@ -1,0 +1,14 @@
+{
+  "name": "bagu-public-page-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "ipaddr.js": "2.2.0",
+    "playwright": "1.64.0"
+  }
+}

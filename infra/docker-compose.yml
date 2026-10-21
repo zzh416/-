@@ -31,6 +31,45 @@ services:
       timeout: 3s
       retries: 10
 
+  renderer:
+    build:
+      context: ../apps/renderer
+      args:
+        BASE_IMAGE: ${RENDERER_BASE_IMAGE:-mcr.microsoft.com/playwright:v1.64.0-noble}
+    init: true
+    user: pwuser
+    read_only: true
+    environment:
+      HOME: /tmp
+      XDG_CACHE_HOME: /tmp/.cache
+    cap_drop:
+      - ALL
+    cap_add:
+      - SYS_CHROOT
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./seccomp_profile.json
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    shm_size: 512mb
+    mem_limit: 1g
+    pids_limit: 256
+    expose:
+      - "9100"
+    networks:
+      - renderer_net
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:9100/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   api:
     build:
       context: ../apps/api
@@ -90,6 +129,8 @@ services:
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.siliconflow.cn/v1}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-m3}
+      RENDERER_URL: http://renderer:9100
+      RENDERER_TIMEOUT_SECONDS: ${RENDERER_TIMEOUT_SECONDS:-30}
     volumes:
       - ../apps/api:/app
       - ../data:/data
@@ -98,6 +139,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      renderer:
+        condition: service_healthy
+    networks:
+      - default
+      - renderer_net
 
   web:
     build:
@@ -118,3 +164,6 @@ services:
 volumes:
   pgdata:
   redisdata:
+
+networks:
+  renderer_net:

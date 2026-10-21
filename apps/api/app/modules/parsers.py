@@ -237,7 +237,20 @@ def extract_webpage(content: bytes, source_url: str) -> ParseResult:
         )
     except Exception as exc:
         raise IngestionParseError("WEB_EXTRACTION_FAILED", "网页正文提取失败") from exc
-    if not markdown or len(markdown.strip()) < 20:
+    normalized_markdown = " ".join(markdown.split()).lower() if markdown else ""
+    javascript_shell_phrases = (
+        "enable javascript to run this app",
+        "enable javascript to continue",
+        "javascript is required",
+        "请启用 javascript",
+        "请开启 javascript",
+        "需要启用 javascript",
+    )
+    is_javascript_shell = (
+        len(normalized_markdown) < 500
+        and any(phrase in normalized_markdown for phrase in javascript_shell_phrases)
+    )
+    if not markdown or len(markdown.strip()) < 20 or is_javascript_shell:
         raise IngestionParseError(
             "WEB_CONTENT_EMPTY",
             "没有提取到可用正文；该网页可能需要登录或 JavaScript，可改用粘贴文字",
