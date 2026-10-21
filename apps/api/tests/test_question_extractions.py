@@ -10,8 +10,21 @@ from app.identity import get_current_user_id
 from app.main import app
 from app.models import QuestionOccurrence
 from app.modules.question_extraction_service import process_question_extraction_run
+from app.modules.question_extraction_service import LoadedChunk, _build_extraction_batches
 
 client = TestClient(app)
+
+
+def test_extraction_batches_overlap_without_losing_source_order() -> None:
+    chunks = [LoadedChunk(id=uuid4(), ordinal=index, content="x" * 10) for index in range(7)]
+    batches = _build_extraction_batches(
+        chunks, max_chars=100, max_blocks=3, overlap_blocks=1
+    )
+    assert [[chunk.ordinal for chunk in batch] for batch in batches] == [
+        [0, 1, 2],
+        [2, 3, 4],
+        [4, 5, 6],
+    ]
 
 
 def _create_collection() -> str:

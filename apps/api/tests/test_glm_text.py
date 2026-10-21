@@ -32,6 +32,7 @@ def test_glm_text_parses_strict_structured_output() -> None:
         body = json.loads(request.content)
         assert request.url.path.endswith("/chat/completions")
         assert body["response_format"] == {"type": "json_object"}
+        assert body["max_tokens"] == 4096
         assert "不得补写" in body["messages"][0]["content"]
         return httpx.Response(
             200,
@@ -126,3 +127,29 @@ def test_glm_text_requires_api_key() -> None:
             base_url="https://example.test/v4",
             model="glm-test",
         )
+
+
+def test_glm_text_reports_truncated_output_separately() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "length",
+                        "message": {"content": '{"items":['},
+                    }
+                ]
+            },
+        )
+    )
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(TextModelError, match="输出被截断") as error:
+            extract_questions_with_glm(
+                [ExtractionBlock(ordinal=0, content="问题")],
+                api_key="test-key",
+                base_url="https://example.test/v4",
+                model="glm-test",
+                client=client,
+            )
+    assert error.value.code == "TEXT_MODEL_OUTPUT_TRUNCATED"

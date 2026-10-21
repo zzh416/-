@@ -101,6 +101,7 @@ def extract_questions_with_glm(
     api_key: str,
     base_url: str,
     model: str,
+    max_output_tokens: int = 4_096,
     client: httpx.Client | None = None,
 ) -> list[ExtractedPair]:
     if not api_key.strip():
@@ -127,6 +128,7 @@ def extract_questions_with_glm(
                         {"role": "user", "content": source},
                     ],
                     "temperature": 0,
+                    "max_tokens": max_output_tokens,
                     "response_format": {"type": "json_object"},
                 },
             ) as response:
@@ -158,9 +160,18 @@ def extract_questions_with_glm(
             raise TextModelError("TEXT_MODEL_REQUEST_REJECTED", "题目抽取服务拒绝了请求", retryable=False)
         try:
             envelope = json.loads(response_content)
-            raw_content = envelope["choices"][0]["message"]["content"]
+            choice = envelope["choices"][0]
+            if choice.get("finish_reason") in {"length", "max_tokens"}:
+                raise TextModelError(
+                    "TEXT_MODEL_OUTPUT_TRUNCATED",
+                    "题目较多，模型输出被截断；请缩小单次抽取范围后重试",
+                    retryable=True,
+                )
+            raw_content = choice["message"]["content"]
             parsed = _normalize_empty_answers(json.loads(raw_content))
             result = ExtractionResponse.model_validate(parsed)
+        except TextModelError:
+            raise
         except (ValueError, KeyError, IndexError, TypeError, ValidationError) as exc:
             raise TextModelError(
                 "TEXT_MODEL_INVALID_RESPONSE",

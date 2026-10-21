@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     max_ocr_image_bytes: int = 10 * 1024 * 1024
     max_extracted_text_bytes: int = 5 * 1024 * 1024
     max_question_extraction_chars: int = 60_000
+    question_extraction_batch_chars: int = 4_000
+    question_extraction_batch_blocks: int = 40
+    question_extraction_overlap_blocks: int = 2
+    question_extraction_max_output_tokens: int = 4_096
     max_url_response_bytes: int = 5 * 1024 * 1024
     max_pdf_pages: int = 100
     max_pdf_content_stream_bytes: int = 32 * 1024 * 1024

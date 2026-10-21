@@ -37,6 +37,35 @@ class LoadedChunk:
     content: str
 
 
+def _build_extraction_batches(
+    chunks: list[LoadedChunk],
+    *,
+    max_chars: int,
+    max_blocks: int,
+    overlap_blocks: int,
+) -> list[list[LoadedChunk]]:
+    if not chunks:
+        return []
+    if max_chars < 1 or max_blocks < 1 or overlap_blocks < 0:
+        raise ValueError("题目抽取批次配置无效")
+    batches: list[list[LoadedChunk]] = []
+    start = 0
+    while start < len(chunks):
+        end = start
+        char_count = 0
+        while end < len(chunks) and end - start < max_blocks:
+            next_size = len(chunks[end].content)
+            if end > start and char_count + next_size > max_chars:
+                break
+            char_count += next_size
+            end += 1
+        batches.append(chunks[start:end])
+        if end >= len(chunks):
+            break
+        start = max(start + 1, end - min(overlap_blocks, end - start - 1))
+    return batches
+
+
 def _finish_failure(run_id: UUID, code: str, message: str, status: str = "FAILED") -> None:
     with SessionLocal() as db:
         run = db.get(QuestionExtractionRun, run_id)
@@ -117,13 +146,27 @@ def process_question_extraction_run(
             "资料超过单次题目抽取上限；后续将按来源块分批处理",
         )
         return
+    batches = _build_extraction_batches(
+        chunks,
+        max_chars=settings.question_extraction_batch_chars,
+        max_blocks=settings.question_extraction_batch_blocks,
+        overlap_blocks=settings.question_extraction_overlap_blocks,
+    )
     try:
-        pairs = extractor(
-            [ExtractionBlock(ordinal=chunk.ordinal, content=chunk.content) for chunk in chunks],
-            api_key=settings.glm_api_key,
-            base_url=settings.glm_base_url,
-            model=settings.glm_text_model,
-        )
+        pairs: list[ExtractedPair] = []
+        for batch in batches:
+            pairs.extend(
+                extractor(
+                    [
+                        ExtractionBlock(ordinal=chunk.ordinal, content=chunk.content)
+                        for chunk in batch
+                    ],
+                    api_key=settings.glm_api_key,
+                    base_url=settings.glm_base_url,
+                    model=settings.glm_text_model,
+                    max_output_tokens=settings.question_extraction_max_output_tokens,
+                )
+            )
     except TextModelNotConfigured:
         _finish_failure(
             run_id,
@@ -158,6 +201,9 @@ def process_question_extraction_run(
                 return
             answered_count = 0
             seen_ranges: set[tuple[UUID, int, int]] = set()
+            created_by_range: dict[
+                tuple[UUID, int, int], tuple[Question, QuestionOccurrence]
+            ] = {}
             for pair in pairs:
                 source_chunk, prompt, question_start, question_end = _validated_slice(
                     chunk_map,
@@ -171,9 +217,6 @@ def process_question_extraction_run(
                         "TEXT_MODEL_SOURCE_MISMATCH", "模型返回了空题目", retryable=False
                     )
                 source_key = (source_chunk.id, question_start, question_end)
-                if source_key in seen_ranges:
-                    continue
-                seen_ranges.add(source_key)
                 answer_chunk = None
                 answer_text = None
                 answer_start = None
@@ -190,6 +233,29 @@ def process_question_extraction_run(
                         raise TextModelError(
                             "TEXT_MODEL_SOURCE_MISMATCH", "模型返回了空答案", retryable=False
                         )
+                existing = created_by_range.get(source_key)
+                if existing is not None:
+                    existing_question, existing_occurrence = existing
+                    if existing_question.answer is None and answer_text is not None:
+                        answer = Answer(
+                            owner_id=run.owner_id,
+                            content=answer_text,
+                            source_type="SOURCE_EXTRACTED",
+                        )
+                        answer.revisions.append(
+                            AnswerRevision(version=1, content=answer_text)
+                        )
+                        existing_question.answer = answer
+                        existing_occurrence.answer_source_chunk_id = answer_chunk.id
+                        existing_occurrence.answer_start = answer_start
+                        existing_occurrence.answer_end = answer_end
+                        existing_occurrence.answer_quote = pair.answer_quote
+                        existing_occurrence.confidence = max(
+                            existing_occurrence.confidence, pair.confidence
+                        )
+                        answered_count += 1
+                    continue
+                seen_ranges.add(source_key)
                 question = Question(
                     owner_id=run.owner_id,
                     collection_id=asset.collection_id,
@@ -208,8 +274,7 @@ def process_question_extraction_run(
                     answered_count += 1
                 db.add(question)
                 db.flush()
-                db.add(
-                    QuestionOccurrence(
+                occurrence = QuestionOccurrence(
                         question_id=question.id,
                         extraction_run_id=run.id,
                         asset_version_id=run.asset_version_id,
@@ -224,7 +289,8 @@ def process_question_extraction_run(
                         confidence=pair.confidence,
                         review_status="PENDING",
                     )
-                )
+                db.add(occurrence)
+                created_by_range[source_key] = (question, occurrence)
             run.question_count = len(seen_ranges)
             run.answered_count = answered_count
             run.missing_count = len(seen_ranges) - answered_count
