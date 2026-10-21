@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+from pydantic import Field, model_validator
+
 from app.schemas.common import APIModel
 
 ExtractionStatus = Literal[
@@ -47,6 +49,22 @@ ReviewStatus = Literal["PENDING", "CONFIRMED", "REJECTED"]
 class ExtractionReviewUpdate(APIModel):
     action: Literal["CONFIRM", "REJECT", "RESET"]
     expected_status: ReviewStatus
+
+
+class MissedQuestionCreate(APIModel):
+    source_chunk_id: UUID
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+    quote: str = Field(min_length=1, max_length=20_000)
+    prompt: str = Field(min_length=1, max_length=20_000)
+
+    @model_validator(mode="after")
+    def range_must_be_ordered(self) -> "MissedQuestionCreate":
+        if self.end <= self.start:
+            raise ValueError("原文结束位置必须大于开始位置")
+        if not self.quote.strip() or not self.prompt.strip():
+            raise ValueError("题目和原文引文不能为空")
+        return self
 
 
 class ExtractionAnswerView(APIModel):

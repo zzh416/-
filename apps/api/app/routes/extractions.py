@@ -24,6 +24,7 @@ from app.schemas.extractions import (
     ExtractionReviewItemView,
     ExtractionReviewPage,
     ExtractionReviewUpdate,
+    MissedQuestionCreate,
     QuestionExtractionRunView,
     SuspectedMissView,
 )
@@ -356,3 +357,80 @@ def update_extraction_review_item(
     db.commit()
     db.refresh(occurrence)
     return _review_item(occurrence, question, answer, source_chunk)
+
+
+@router.post(
+    "/question-extraction-runs/{run_id}/missed-items",
+    response_model=ExtractionReviewItemView,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_missed_question(
+    run_id: UUID,
+    payload: MissedQuestionCreate,
+    db: Session = Depends(get_db),
+    owner_id: UUID = Depends(get_current_user_id),
+) -> ExtractionReviewItemView:
+    run = db.scalar(
+        select(QuestionExtractionRun)
+        .where(
+            QuestionExtractionRun.id == run_id,
+            QuestionExtractionRun.owner_id == owner_id,
+        )
+        .with_for_update()
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="题目抽取任务不存在")
+    source_chunk = db.scalar(
+        select(TextChunk).where(
+            TextChunk.id == payload.source_chunk_id,
+            TextChunk.asset_version_id == run.asset_version_id,
+        )
+    )
+    if source_chunk is None:
+        raise HTTPException(status_code=404, detail="来源文本块不存在")
+    if (
+        payload.end > len(source_chunk.content)
+        or source_chunk.content[payload.start : payload.end] != payload.quote
+    ):
+        raise HTTPException(status_code=422, detail="所选文字无法回指当前资料版本")
+    existing = db.scalar(
+        select(QuestionOccurrence).where(
+            QuestionOccurrence.extraction_run_id == run.id,
+            QuestionOccurrence.source_chunk_id == source_chunk.id,
+            QuestionOccurrence.question_start == payload.start,
+            QuestionOccurrence.question_end == payload.end,
+        )
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="该原文范围已经建立题目")
+
+    asset = db.get(Asset, run.asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="来源资料不存在")
+    question = Question(
+        owner_id=owner_id,
+        collection_id=asset.collection_id,
+        source_chunk_id=source_chunk.id,
+        source_type="SOURCE",
+        prompt=payload.prompt.strip(),
+    )
+    db.add(question)
+    db.flush()
+    occurrence = QuestionOccurrence(
+        question_id=question.id,
+        extraction_run_id=run.id,
+        asset_version_id=run.asset_version_id,
+        source_chunk_id=source_chunk.id,
+        question_start=payload.start,
+        question_end=payload.end,
+        question_quote=payload.quote,
+        answer_spans=[],
+        confidence=1,
+        review_status="CONFIRMED",
+    )
+    db.add(occurrence)
+    run.question_count += 1
+    run.missing_count += 1
+    db.commit()
+    db.refresh(occurrence)
+    return _review_item(occurrence, question, None, source_chunk)

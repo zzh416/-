@@ -145,7 +145,28 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         assert review_payload["pendingCount"] == 2
         assert review_payload["confirmedCount"] == 0
         assert review_payload["rejectedCount"] == 0
-        assert review_payload["suspectedMisses"][0]["quote"] == "#### 33.什么是描述符协议"
+        suspected_miss = review_payload["suspectedMisses"][0]
+        assert suspected_miss["quote"] == "#### 33.什么是描述符协议"
+
+        added_miss = client.post(
+            f"/api/v1/question-extraction-runs/{run_id}/missed-items",
+            json={
+                "sourceChunkId": suspected_miss["sourceChunkId"],
+                "start": suspected_miss["start"],
+                "end": suspected_miss["end"],
+                "quote": suspected_miss["quote"],
+                "prompt": "33.什么是描述符协议",
+            },
+        )
+        assert added_miss.status_code == 201
+        assert added_miss.json()["reviewStatus"] == "CONFIRMED"
+        question_ids.append(added_miss.json()["questionId"])
+        refreshed_review = client.get(
+            f"/api/v1/question-extraction-runs/{run_id}/review-items"
+        ).json()
+        assert refreshed_review["total"] == 3
+        assert refreshed_review["confirmedCount"] == 1
+        assert refreshed_review["suspectedMisses"] == []
 
         first_review_item = review_payload["items"][0]
         confirmed = client.put(
@@ -170,9 +191,10 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         visible_questions = client.get(
             "/api/v1/questions", params={"collectionId": collection_id}
         ).json()
-        assert [item["id"] for item in visible_questions["items"]] == [
-            first_review_item["questionId"]
-        ]
+        assert {item["id"] for item in visible_questions["items"]} == {
+            first_review_item["questionId"],
+            added_miss.json()["questionId"],
+        }
 
         reset = client.put(
             f"/api/v1/question-extraction-items/{second_review_item['occurrenceId']}/review",
