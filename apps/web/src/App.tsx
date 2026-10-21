@@ -869,7 +869,7 @@ function App() {
                 loading={questionExtractionCreate.isPending}
                 onClick={() => questionExtractionCreate.mutate(assetDetail.data!.id)}
               >
-                自动整理题目
+                AI 自动整理
               </Button>
               <Button
                 disabled={assetDetail.data.currentVersion === 0}
@@ -877,7 +877,7 @@ function App() {
                   openQuestionCreate(assetDetail.data?.chunks[0]?.id)
                 }}
               >
-                从此资料建题
+                手动建题
               </Button>
               <Button
                 disabled={assetDetail.data.currentVersion === 0}
