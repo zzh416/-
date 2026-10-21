@@ -61,7 +61,7 @@ export interface IngestionJob {
 
 export interface AssetSummary {
   id: string
-  collectionId: string
+  collectionId: string | null
   title: string
   sourceFormat: SourceFormat
   originalFilename: string | null
@@ -211,6 +211,71 @@ export interface ExtractionReviewPage {
   confirmedCount: number
   rejectedCount: number
   suspectedMisses: SuspectedMiss[]
+}
+
+export type ProfileExtractionStatus =
+  | 'EMPTY'
+  | 'IDLE'
+  | 'PROCESSING'
+  | 'SUCCEEDED'
+  | 'PARTIAL_SUCCESS'
+  | 'WAITING_FOR_CONFIGURATION'
+  | 'FAILED'
+
+export type SkillProficiency = 'UNSPECIFIED' | 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED'
+export type SkillReviewStatus = 'PENDING' | 'CONFIRMED' | 'REJECTED'
+export type PreferenceRuleType = 'INCLUDE' | 'EXCLUDE'
+export type PreferenceScope = 'QUESTION' | 'ANSWER' | 'BOTH'
+
+export interface ProfileSkill {
+  id: string
+  displayName: string
+  canonicalName: string
+  category: string
+  proficiency: SkillProficiency
+  evidence: string | null
+  reviewStatus: SkillReviewStatus
+  source: 'MODEL' | 'USER'
+}
+
+export interface UserProfile {
+  id: string
+  version: number
+  currentVersion: number
+  extractionStatus: ProfileExtractionStatus
+  targetRole: string | null
+  model: string | null
+  errorCode: string | null
+  errorMessage: string | null
+  resume: AssetSummary | null
+  skills: ProfileSkill[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Technology {
+  canonicalName: string
+  displayName: string
+  category: string
+  aliases: string[]
+  parent: string | null
+}
+
+export interface PreferenceRule {
+  id: string
+  ruleType: PreferenceRuleType
+  technology: string
+  canonicalTechnology: string
+  category: string
+  scope: PreferenceScope
+  isActive: boolean
+  version: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PreferenceRulePage {
+  items: PreferenceRule[]
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -397,3 +462,73 @@ export const deleteNote = (questionId: string) =>
 
 export const deleteQuestion = (questionId: string) =>
   apiRequest<void>(`/api/v1/questions/${questionId}`, { method: 'DELETE' })
+
+export const fetchProfile = () => apiRequest<UserProfile>('/api/v1/profiles/me')
+
+export const uploadResume = (file: File) => {
+  const form = new FormData()
+  form.append('file', file)
+  return apiRequest<UserProfile>('/api/v1/profiles/me/resume', {
+    method: 'POST',
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
+    body: form,
+  })
+}
+
+export const startProfileExtraction = () =>
+  apiRequest<UserProfile>('/api/v1/profiles/me/extraction', { method: 'POST' })
+
+export const updateProfileTargetRole = (input: {
+  targetRole: string | null
+  expectedVersion: number
+}) => apiRequest<UserProfile>('/api/v1/profiles/me/target-role', jsonRequest('PUT', input))
+
+export const createProfileSkill = (input: {
+  displayName: string
+  proficiency: SkillProficiency
+  expectedVersion: number
+}) => apiRequest<UserProfile>('/api/v1/profiles/me/skills', jsonRequest('POST', input))
+
+export const updateProfileSkill = (
+  skillId: string,
+  input: {
+    displayName: string
+    proficiency: SkillProficiency
+    reviewStatus: SkillReviewStatus
+    expectedVersion: number
+  },
+) => apiRequest<UserProfile>(`/api/v1/profiles/me/skills/${skillId}`, jsonRequest('PUT', input))
+
+export const deleteProfileSkill = (skillId: string, expectedVersion: number) =>
+  apiRequest<UserProfile>(
+    `/api/v1/profiles/me/skills/${skillId}?expectedVersion=${expectedVersion}`,
+    { method: 'DELETE' },
+  )
+
+export const fetchTechnologies = () => apiRequest<Technology[]>('/api/v1/technologies')
+
+export const fetchPreferenceRules = () =>
+  apiRequest<PreferenceRulePage>('/api/v1/preference-rules')
+
+export const createPreferenceRule = (input: {
+  ruleType: PreferenceRuleType
+  technology: string
+  scope: PreferenceScope
+}) => apiRequest<PreferenceRule>('/api/v1/preference-rules', jsonRequest('POST', input))
+
+export const updatePreferenceRule = (
+  ruleId: string,
+  input: {
+    ruleType: PreferenceRuleType
+    technology: string
+    scope: PreferenceScope
+    isActive: boolean
+    expectedVersion: number
+  },
+) => apiRequest<PreferenceRule>(`/api/v1/preference-rules/${ruleId}`, jsonRequest('PUT', input))
+
+export const deletePreferenceRule = (ruleId: string, expectedVersion: number) =>
+  apiRequest<void>(
+    `/api/v1/preference-rules/${ruleId}?expectedVersion=${expectedVersion}`,
+    { method: 'DELETE' },
+  )

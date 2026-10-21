@@ -55,6 +55,13 @@ textarea {
   font-size: 0.875rem;
 }
 
+.header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1rem;
+}
+
 .status-dot {
   width: 0.55rem;
   height: 0.55rem;
@@ -332,6 +339,99 @@ textarea {
   margin-top: 1rem;
 }
 
+.profile-drawer .ant-drawer-body {
+  background: #f8f9fb;
+}
+
+.profile-stack {
+  width: 100%;
+}
+
+.profile-section-heading,
+.profile-skill-heading,
+.profile-rule-row,
+.profile-card-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.profile-section-heading h4.ant-typography,
+.profile-drawer h4.ant-typography {
+  margin: 0 0 0.25rem;
+}
+
+.profile-card,
+.profile-skill-list,
+.profile-rule-list {
+  margin-top: 1rem;
+}
+
+.profile-card-actions {
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 1rem;
+}
+
+.profile-inline-alert,
+.profile-rule-hint {
+  margin-top: 1rem;
+}
+
+.profile-role-input {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.profile-skill-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.profile-card.muted {
+  opacity: 0.68;
+}
+
+.skill-evidence {
+  margin: 0.75rem 0 0 !important;
+  padding: 0.6rem 0.75rem;
+  background: #f7f8fa;
+  border-radius: 0.4rem;
+}
+
+.profile-rule-form {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.profile-rule-form .ant-form-item {
+  margin-inline-end: 0;
+  margin-bottom: 0.75rem;
+}
+
+.profile-technology-select {
+  width: 13rem;
+}
+
+.profile-scope-select {
+  width: 9rem;
+}
+
+.profile-rule-list {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.profile-rule-row {
+  align-items: center;
+  padding: 0.7rem 0.8rem;
+  background: #fff;
+  border: 1px solid #e1e5e9;
+  border-radius: 0.5rem;
+}
+
 .review-drawer .ant-drawer-body {
   overflow: hidden;
 }
@@ -484,6 +584,11 @@ textarea {
     padding: 1rem;
   }
 
+  .header-actions {
+    align-items: flex-end;
+    flex-direction: column;
+  }
+
   .workspace-layout {
     grid-template-columns: 1fr;
   }
@@ -545,5 +650,22 @@ textarea {
   .asset-drawer .ant-drawer-extra {
     margin-top: 0.75rem;
     margin-inline-start: 0;
+  }
+
+  .header-actions,
+  .profile-section-heading,
+  .profile-skill-heading,
+  .profile-rule-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profile-rule-form {
+    display: grid;
+  }
+
+  .profile-technology-select,
+  .profile-scope-select {
+    width: 100%;
   }
 }
