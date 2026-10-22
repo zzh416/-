@@ -65,7 +65,8 @@ def extract_profile_with_glm(
     active_client = client or httpx.Client(timeout=httpx.Timeout(120.0, connect=20.0))
     try:
         try:
-            response = active_client.post(
+            with active_client.stream(
+                "POST",
                 endpoint,
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
@@ -78,29 +79,39 @@ def extract_profile_with_glm(
                     "max_tokens": max_output_tokens,
                     "response_format": {"type": "json_object"},
                 },
-            )
+            ) as response:
+                response_content = bytearray()
+                for chunk in response.iter_bytes():
+                    response_content.extend(chunk)
+                    if len(response_content) > 2 * 1024 * 1024:
+                        raise TextModelError(
+                            "PROFILE_MODEL_RESPONSE_TOO_LARGE",
+                            "画像提取服务响应超过大小上限",
+                            retryable=False,
+                        )
+                response_status = response.status_code
         except httpx.HTTPError as exc:
             raise TextModelError(
                 "PROFILE_MODEL_UNAVAILABLE", "画像提取服务连接失败，请稍后重试", retryable=True
             ) from exc
-        if response.status_code in {401, 403}:
+        if response_status in {401, 403}:
             raise TextModelError(
                 "PROFILE_MODEL_AUTH_FAILED", "GLM API Key 无效或无权限", retryable=False
             )
-        if response.status_code == 429:
+        if response_status == 429:
             raise TextModelError(
                 "PROFILE_MODEL_RATE_LIMITED", "画像提取服务限流，请稍后重试", retryable=True
             )
-        if response.status_code >= 500:
+        if response_status >= 500:
             raise TextModelError(
                 "PROFILE_MODEL_UNAVAILABLE", "画像提取服务暂时不可用", retryable=True
             )
-        if response.status_code >= 400:
+        if response_status >= 400:
             raise TextModelError(
                 "PROFILE_MODEL_REQUEST_REJECTED", "画像提取服务拒绝了请求", retryable=False
             )
         try:
-            envelope = response.json()
+            envelope = json.loads(response_content)
             choice = envelope["choices"][0]
             if choice.get("finish_reason") in {"length", "max_tokens"}:
                 raise TextModelError(

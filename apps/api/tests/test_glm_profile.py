@@ -78,3 +78,19 @@ def test_glm_profile_rejects_unpaired_role_evidence_and_requires_key() -> None:
             base_url="https://example.test/v4",
             model="glm-test",
         )
+
+
+def test_glm_profile_rejects_oversized_provider_response() -> None:
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(200, content=b"x" * (2 * 1024 * 1024 + 1))
+    )
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(TextModelError) as error:
+            extract_profile_with_glm(
+                "Python",
+                api_key="test-key",
+                base_url="https://example.test/v4",
+                model="glm-test",
+                client=client,
+            )
+    assert error.value.code == "PROFILE_MODEL_RESPONSE_TOO_LARGE"

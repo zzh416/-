@@ -32,3 +32,16 @@ def test_explicit_database_url_takes_precedence() -> None:
 
     assert settings.sqlalchemy_database_url.drivername == "sqlite+pysqlite"
     assert settings.sqlalchemy_database_url.database == ":memory:"
+
+
+def test_secret_configuration_is_redacted_from_repr() -> None:
+    secret = "p3-secret-value-that-must-not-be-logged"
+    settings = Settings(
+        _env_file=None,
+        postgres_password=secret,
+        glm_api_key=secret,
+        deepseek_api_key=secret,
+        embedding_api_key=secret,
+    )
+
+    assert secret not in repr(settings)
