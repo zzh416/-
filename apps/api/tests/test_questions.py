@@ -1,12 +1,33 @@
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pytest
 
+from app.db import SessionLocal
 from app.identity import get_current_user_id
 from app.main import app
+from app.models import User
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def isolated_question_test_user():
+    owner_id = uuid4()
+    with SessionLocal() as db:
+        db.add(User(id=owner_id, display_name="问答测试用户"))
+        db.commit()
+    app.dependency_overrides[get_current_user_id] = lambda: owner_id
+    try:
+        yield owner_id
+    finally:
+        app.dependency_overrides.clear()
+        with SessionLocal() as db:
+            user = db.get(User, owner_id)
+            if user is not None:
+                db.delete(user)
+                db.commit()
 
 
 def _create_collection() -> str:
