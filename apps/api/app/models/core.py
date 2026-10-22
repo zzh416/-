@@ -395,6 +395,69 @@ class PreferenceRule(Base):
     )
 
 
+class RecommendationRun(Base):
+    __tablename__ = "recommendation_runs"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    profile_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("profile_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    profile_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    profile_snapshot: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
+    rule_snapshot: Mapped[list[dict]] = mapped_column(JSON, default=list, server_default="[]")
+    rules_fingerprint: Mapped[str] = mapped_column(String(64))
+    algorithm_version: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(24), default="SUCCEEDED", server_default="SUCCEEDED")
+    total_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    included_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    excluded_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    answered_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    missing_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    items: Mapped[list["RecommendationItem"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class RecommendationItem(Base):
+    __tablename__ = "recommendation_items"
+    __table_args__ = (
+        UniqueConstraint("run_id", "question_id", name="uq_recommendation_items_run_question"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    run_id: Mapped[UUID] = mapped_column(
+        ForeignKey("recommendation_runs.id", ondelete="CASCADE"), index=True
+    )
+    question_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("questions.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    collection_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("collections.id", ondelete="SET NULL"), nullable=True
+    )
+    position: Mapped[int] = mapped_column(Integer)
+    question_version: Mapped[int] = mapped_column(Integer)
+    answer_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    prompt: Mapped[str] = mapped_column(Text)
+    answer_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_source_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    decision: Mapped[str] = mapped_column(String(16))
+    score: Mapped[float] = mapped_column(Float)
+    answer_state: Mapped[str] = mapped_column(String(24))
+    usable_answer_state: Mapped[str] = mapped_column(String(24))
+    question_technologies: Mapped[list[dict]] = mapped_column(JSON, default=list, server_default="[]")
+    answer_technologies: Mapped[list[dict]] = mapped_column(JSON, default=list, server_default="[]")
+    reason_codes: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    reasons: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    run: Mapped[RecommendationRun] = relationship(back_populates="items")
+
+
 class IdempotencyRecord(Base):
     __tablename__ = "idempotency_records"
     __table_args__ = (
