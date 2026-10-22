@@ -7,7 +7,7 @@ import re
 from app.modules.technology_catalog import TECHNOLOGIES, Technology, get_technology
 
 
-ALGORITHM_VERSION = "p3.5-v3"
+ALGORITHM_VERSION = "p3.6-v1"
 
 
 @dataclass(frozen=True)

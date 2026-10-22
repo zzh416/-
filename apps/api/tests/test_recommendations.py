@@ -83,7 +83,7 @@ def test_recommendation_run_is_explainable_versioned_idempotent_and_owner_scoped
         run = created.json()
         assert run["status"] == "SUCCEEDED"
         assert run["profileVersion"] == profile["currentVersion"]
-        assert run["algorithmVersion"] == "p3.5-v3"
+        assert run["algorithmVersion"] == "p3.6-v1"
         assert run["isCurrent"] is True
         assert run["totalCount"] == 4
         assert run["includedCount"] == 2
@@ -174,3 +174,43 @@ def test_recommendation_run_is_explainable_versioned_idempotent_and_owner_scoped
                 if user is not None:
                     db.delete(user)
             db.commit()
+
+
+def test_recommendation_run_deduplicates_equivalent_questions_and_keeps_best_answer() -> None:
+    owner_id = _test_user()
+    try:
+        first_collection = client.post(
+            "/api/v1/collections",
+            json={"name": f"去重测试一-{uuid4()}", "purpose": "KNOWLEDGE_BASE"},
+        ).json()
+        second_collection = client.post(
+            "/api/v1/collections",
+            json={"name": f"去重测试二-{uuid4()}", "purpose": "INTERVIEW_EXPERIENCE"},
+        ).json()
+        _create_question(first_collection["id"], "Python 的 GIL 是什么？")
+        answered = _create_question(
+            second_collection["id"],
+            "  Python   的 GIL 是什么?  ",
+            "GIL 是 CPython 的全局解释器锁。",
+        )
+
+        created = client.post(
+            "/api/v1/recommendation-runs",
+            headers={"Idempotency-Key": f"recommendation-{uuid4()}"},
+            json={},
+        )
+        assert created.status_code == 201
+        run = created.json()
+        assert run["totalCount"] == 1
+        assert run["includedCount"] == 1
+        assert run["answeredCount"] == 1
+
+        items = client.get(
+            f"/api/v1/recommendation-runs/{run['id']}/items",
+            params={"decision": "INCLUDED"},
+        ).json()["items"]
+        assert len(items) == 1
+        assert items[0]["questionId"] == answered["id"]
+        assert items[0]["answerContent"] == "GIL 是 CPython 的全局解释器锁。"
+    finally:
+        _delete_user(owner_id)

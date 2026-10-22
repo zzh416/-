@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Literal
+import unicodedata
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -159,6 +161,42 @@ def _content_fingerprint(questions: list[Question]) -> str:
     ).hexdigest()
 
 
+def _question_identity(prompt: str) -> str:
+    normalized = unicodedata.normalize("NFKC", prompt).casefold()
+    normalized = re.sub(r"[*_`#]", "", normalized)
+    normalized = re.sub(r"\s+", "", normalized)
+    return re.sub(r"[?!.。！？；;:：]+$", "", normalized)
+
+
+def _deduplicate_questions(questions: list[Question]) -> list[Question]:
+    """Keep one equivalent prompt, preferring a usable and more recently edited answer."""
+
+    selected: dict[str, Question] = {}
+    for question in questions:
+        identity = _question_identity(question.prompt)
+        current = selected.get(identity)
+        if current is None:
+            selected[identity] = question
+            continue
+        question_rank = (
+            bool(question.answer and question.answer.content.strip()),
+            question.answer.version if question.answer is not None else 0,
+            question.version,
+            question.updated_at,
+            str(question.id),
+        )
+        current_rank = (
+            bool(current.answer and current.answer.content.strip()),
+            current.answer.version if current.answer is not None else 0,
+            current.version,
+            current.updated_at,
+            str(current.id),
+        )
+        if question_rank > current_rank:
+            selected[identity] = question
+    return list(selected.values())
+
+
 def _run_view(db: Session, run: RecommendationRun, owner_id: UUID) -> RecommendationRunView:
     _, current_profile_version, _, _ = _profile_context(db, owner_id)
     _, _, current_fingerprint = _rule_context(db, owner_id)
@@ -225,7 +263,7 @@ def create_recommendation_run(
         return _run_view(db, _owned_run(db, replay_id, owner_id), owner_id)
 
     evaluated = []
-    for question in questions:
+    for question in _deduplicate_questions(questions):
         answer_content = question.answer.content if question.answer is not None else None
         evaluation = build_recommendation(
             prompt=question.prompt,
