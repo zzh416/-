@@ -5,7 +5,18 @@ import pytest
 from docx import Document
 from pypdf import PdfWriter
 
+from app.models import AssetVersion
+from app.modules.content_versions import build_chunks
 from app.modules.parsers import IngestionParseError, extract_webpage, parse_docx, parse_pdf
+
+
+def test_text_chunking_keeps_final_block_before_trailing_newline() -> None:
+    content = "第一段\n\n### 最后一道问题？\n"
+    version = AssetVersion(version=1, content=content)
+
+    chunks = build_chunks(content, version)
+
+    assert [chunk.content for chunk in chunks] == ["第一段", "### 最后一道问题？"]
 
 
 def _text_pdf(text: str) -> bytes:

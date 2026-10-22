@@ -59,7 +59,7 @@ def build_chunks(
         if chunks:
             return chunks
 
-    for match in re.finditer(r"\S(?:.*?\S)?(?=\n\s*\n|\Z)", content, re.DOTALL):
+    for match in re.finditer(r"\S(?:.*?\S)?(?=\n\s*\n|\s*\Z)", content, re.DOTALL):
         block = match.group(0)
         for relative_start in range(0, len(block), 4000):
             piece = block[relative_start : relative_start + 4000]
