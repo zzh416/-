@@ -83,7 +83,7 @@ def test_recommendation_run_is_explainable_versioned_idempotent_and_owner_scoped
         run = created.json()
         assert run["status"] == "SUCCEEDED"
         assert run["profileVersion"] == profile["currentVersion"]
-        assert run["algorithmVersion"] == "p3.5-v2"
+        assert run["algorithmVersion"] == "p3.5-v3"
         assert run["isCurrent"] is True
         assert run["totalCount"] == 4
         assert run["includedCount"] == 2

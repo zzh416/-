@@ -13,6 +13,17 @@ def test_detect_technologies_distinguishes_java_from_javascript_and_adds_parents
     spring = detect_technologies("Spring Boot 的依赖注入如何实现？")
     assert {item.canonical_name for item in spring} == {"spring", "java"}
 
+    assert [item.canonical_name for item in detect_technologies("智能指针如何避免内存泄漏？")] == [
+        "cpp"
+    ]
+    assert [item.canonical_name for item in detect_technologies("HashMap 的扩容机制是什么？")] == [
+        "java"
+    ]
+    assert {item.canonical_name for item in detect_technologies("InnoDB 的 MVCC 如何实现？")} == {
+        "database",
+        "mysql",
+    }
+
 
 def test_confirmed_python_profile_excludes_java_question_but_keeps_general_question() -> None:
     skills = [SkillSnapshot("python", "Python", "LANGUAGE", "CONFIRMED")]

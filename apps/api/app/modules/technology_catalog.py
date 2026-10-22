@@ -15,16 +15,21 @@ class Technology:
 
 
 TECHNOLOGIES = (
-    Technology("python", "Python", "LANGUAGE", ("python", "py")),
-    Technology("java", "Java", "LANGUAGE", ("java",)),
+    Technology("python", "Python", "LANGUAGE", ("python", "py", "cpython", "gil", "pip", "pypi")),
+    Technology("java", "Java", "LANGUAGE", ("java", "jvm", "jdk", "hashmap", "synchronized")),
     Technology("javascript", "JavaScript", "LANGUAGE", ("javascript", "js")),
     Technology("typescript", "TypeScript", "LANGUAGE", ("typescript", "ts")),
-    Technology("cpp", "C++", "LANGUAGE", ("c++", "cpp", "c plus plus")),
+    Technology(
+        "cpp",
+        "C++",
+        "LANGUAGE",
+        ("c++", "cpp", "c plus plus", "std::", "vector", "智能指针", "析构函数", "虚函数"),
+    ),
     Technology("go", "Go", "LANGUAGE", ("go", "golang")),
     Technology("rust", "Rust", "LANGUAGE", ("rust",)),
     Technology("database", "数据库通用", "DATABASE_GENERAL", ("数据库", "database", "db")),
     Technology("sql", "SQL", "DATABASE_GENERAL", ("sql",), "database"),
-    Technology("mysql", "MySQL", "DATABASE_PRODUCT", ("mysql",), "database"),
+    Technology("mysql", "MySQL", "DATABASE_PRODUCT", ("mysql", "innodb", "myisam", "binlog"), "database"),
     Technology("postgresql", "PostgreSQL", "DATABASE_PRODUCT", ("postgresql", "postgres"), "database"),
     Technology("redis", "Redis", "DATABASE_PRODUCT", ("redis",), "database"),
     Technology("mongodb", "MongoDB", "DATABASE_PRODUCT", ("mongodb", "mongo"), "database"),
@@ -36,7 +41,7 @@ TECHNOLOGIES = (
     Technology("docker", "Docker", "TOOL", ("docker",)),
     Technology("kubernetes", "Kubernetes", "TOOL", ("kubernetes", "k8s")),
     Technology("git", "Git", "TOOL", ("git",)),
-    Technology("linux", "Linux", "PLATFORM", ("linux",)),
+    Technology("linux", "Linux", "PLATFORM", ("linux", "epoll", "systemd", "chmod")),
 )
 
 _BY_CANONICAL = {item.canonical_name: item for item in TECHNOLOGIES}
