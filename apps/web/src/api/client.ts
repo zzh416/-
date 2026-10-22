@@ -278,6 +278,78 @@ export interface PreferenceRulePage {
   items: PreferenceRule[]
 }
 
+export type RecommendationDecision = 'INCLUDED' | 'EXCLUDED'
+export type UsableAnswerState = 'ANSWERED' | 'MISSING'
+
+export interface RecommendationTechnology {
+  canonicalName: string
+  displayName: string
+  category: string
+}
+
+export interface RecommendationRun {
+  id: string
+  status: 'SUCCEEDED'
+  algorithmVersion: string
+  profileVersion: number
+  profileSnapshot: {
+    targetRole: string | null
+    skills: Array<{
+      canonicalName: string
+      displayName: string
+      category: string
+      reviewStatus: string
+    }>
+  }
+  ruleSnapshot: Array<{
+    id: string
+    ruleType: PreferenceRuleType
+    technology: string
+    canonicalTechnology: string
+    category: string
+    scope: PreferenceScope
+    version: number
+  }>
+  isCurrent: boolean
+  totalCount: number
+  includedCount: number
+  excludedCount: number
+  answeredCount: number
+  missingCount: number
+  createdAt: string
+}
+
+export interface RecommendationItem {
+  id: string
+  questionId: string | null
+  collectionId: string | null
+  position: number
+  questionVersion: number
+  answerVersion: number | null
+  prompt: string
+  answerContent: string | null
+  answerSourceType: string | null
+  decision: RecommendationDecision
+  score: number
+  answerState: 'MISSING' | 'SOURCE_ANSWER'
+  usableAnswerState: UsableAnswerState
+  questionTechnologies: RecommendationTechnology[]
+  answerTechnologies: RecommendationTechnology[]
+  reasonCodes: string[]
+  reasons: string[]
+}
+
+export interface RecommendationItemPage {
+  items: RecommendationItem[]
+  page: number
+  pageSize: number
+  total: number
+  includedCount: number
+  excludedCount: number
+  answeredCount: number
+  missingCount: number
+}
+
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (!response.ok) {
@@ -532,3 +604,30 @@ export const deletePreferenceRule = (ruleId: string, expectedVersion: number) =>
     `/api/v1/preference-rules/${ruleId}?expectedVersion=${expectedVersion}`,
     { method: 'DELETE' },
   )
+
+export const fetchLatestRecommendationRun = () =>
+  apiRequest<RecommendationRun | null>('/api/v1/recommendation-runs/latest')
+
+export const createRecommendationRun = () =>
+  apiRequest<RecommendationRun>('/api/v1/recommendation-runs', idempotentCreate({}))
+
+export const fetchRecommendationItems = (
+  runId: string,
+  input: {
+    decision?: 'ANY' | RecommendationDecision
+    usableAnswerState?: 'ANY' | UsableAnswerState
+    q?: string
+    page?: number
+    pageSize?: number
+  },
+) => {
+  const params = new URLSearchParams()
+  if (input.decision) params.set('decision', input.decision)
+  if (input.usableAnswerState) params.set('usableAnswerState', input.usableAnswerState)
+  if (input.q) params.set('q', input.q)
+  params.set('page', String(input.page ?? 1))
+  params.set('pageSize', String(input.pageSize ?? 20))
+  return apiRequest<RecommendationItemPage>(
+    `/api/v1/recommendation-runs/${runId}/items?${params.toString()}`,
+  )
+}

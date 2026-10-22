@@ -52,6 +52,7 @@ import {
 import { SafeMarkdown } from './components/SafeMarkdown'
 import { ExtractionReviewDrawer } from './components/ExtractionReviewDrawer'
 import { ProfileDrawer } from './components/ProfileDrawer'
+import { RecommendationDrawer } from './components/RecommendationDrawer'
 
 interface CollectionForm {
   name: string
@@ -163,6 +164,7 @@ function App() {
   const [extractionRunId, setExtractionRunId] = useState<string | null>(null)
   const [isReviewOpen, setReviewOpen] = useState(false)
   const [isProfileOpen, setProfileOpen] = useState(false)
+  const [isRecommendationOpen, setRecommendationOpen] = useState(false)
   const reportedExtractionRunId = useRef<string | null>(null)
 
   const health = useQuery({
@@ -647,7 +649,10 @@ function App() {
           <Typography.Text type="secondary">把分散资料整理成自己的复习问答</Typography.Text>
         </div>
         <div className="header-actions">
-          <Button type="primary" onClick={() => setProfileOpen(true)}>我的画像</Button>
+          <Space wrap>
+            <Button onClick={() => setProfileOpen(true)}>我的画像</Button>
+            <Button type="primary" onClick={() => setRecommendationOpen(true)}>我的复习清单</Button>
+          </Space>
           <div className="service-state" role="status" aria-live="polite">
             <span className={health.data ? 'status-dot status-ok' : 'status-dot status-error'} />
             {health.data ? '本地服务正常' : health.isError ? '本地服务异常' : '正在检查服务'}
@@ -1080,6 +1085,15 @@ function App() {
       <ProfileDrawer
         open={isProfileOpen}
         onClose={() => setProfileOpen(false)}
+        notify={(kind, text) => {
+          if (kind === 'success') messageApi.success(text)
+          else messageApi.error(text)
+        }}
+      />
+
+      <RecommendationDrawer
+        open={isRecommendationOpen}
+        onClose={() => setRecommendationOpen(false)}
         notify={(kind, text) => {
           if (kind === 'success') messageApi.success(text)
           else messageApi.error(text)
