@@ -122,9 +122,47 @@ def _profile_context(
     )
 
 
+def _visible_questions(db: Session, owner_id: UUID) -> list[Question]:
+    has_occurrence = exists(
+        select(QuestionOccurrence.id).where(QuestionOccurrence.question_id == Question.id)
+    )
+    has_visible_occurrence = exists(
+        select(QuestionOccurrence.id).where(
+            QuestionOccurrence.question_id == Question.id,
+            QuestionOccurrence.review_status != "REJECTED",
+        )
+    )
+    return list(
+        db.scalars(
+            select(Question)
+            .where(
+                Question.owner_id == owner_id,
+                or_(~has_occurrence, has_visible_occurrence),
+            )
+            .options(selectinload(Question.answer))
+            .order_by(Question.id)
+        ).all()
+    )
+
+
+def _content_fingerprint(questions: list[Question]) -> str:
+    snapshot = [
+        {
+            "id": str(question.id),
+            "question_version": question.version,
+            "answer_version": question.answer.version if question.answer is not None else None,
+        }
+        for question in questions
+    ]
+    return hashlib.sha256(
+        json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 def _run_view(db: Session, run: RecommendationRun, owner_id: UUID) -> RecommendationRunView:
     _, current_profile_version, _, _ = _profile_context(db, owner_id)
     _, _, current_fingerprint = _rule_context(db, owner_id)
+    current_content_fingerprint = _content_fingerprint(_visible_questions(db, owner_id))
     return RecommendationRunView(
         id=run.id,
         status=run.status,
@@ -135,6 +173,7 @@ def _run_view(db: Session, run: RecommendationRun, owner_id: UUID) -> Recommenda
         is_current=(
             run.profile_version == current_profile_version
             and run.rules_fingerprint == current_fingerprint
+            and run.content_fingerprint == current_content_fingerprint
             and run.algorithm_version == ALGORITHM_VERSION
         ),
         total_count=run.total_count,
@@ -168,11 +207,14 @@ def create_recommendation_run(
 ) -> RecommendationRunView:
     profile_version_id, profile_version, profile_snapshot, skills = _profile_context(db, owner_id)
     rule_snapshot, rules, rules_fingerprint = _rule_context(db, owner_id)
+    questions = _visible_questions(db, owner_id)
+    content_fingerprint = _content_fingerprint(questions)
     digest = request_hash(
         {
             **payload.model_dump(mode="json"),
             "profileVersion": profile_version,
             "rulesFingerprint": rules_fingerprint,
+            "contentFingerprint": content_fingerprint,
             "algorithmVersion": ALGORITHM_VERSION,
         }
     )
@@ -181,24 +223,6 @@ def create_recommendation_run(
     )
     if replay_id is not None:
         return _run_view(db, _owned_run(db, replay_id, owner_id), owner_id)
-
-    has_occurrence = exists(
-        select(QuestionOccurrence.id).where(QuestionOccurrence.question_id == Question.id)
-    )
-    has_visible_occurrence = exists(
-        select(QuestionOccurrence.id).where(
-            QuestionOccurrence.question_id == Question.id,
-            QuestionOccurrence.review_status != "REJECTED",
-        )
-    )
-    questions = db.scalars(
-        select(Question)
-        .where(
-            Question.owner_id == owner_id,
-            or_(~has_occurrence, has_visible_occurrence),
-        )
-        .options(selectinload(Question.answer))
-    ).all()
 
     evaluated = []
     for question in questions:
@@ -226,6 +250,7 @@ def create_recommendation_run(
         profile_snapshot=profile_snapshot,
         rule_snapshot=rule_snapshot,
         rules_fingerprint=rules_fingerprint,
+        content_fingerprint=content_fingerprint,
         algorithm_version=ALGORITHM_VERSION,
         total_count=len(evaluated),
     )

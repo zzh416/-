@@ -88,7 +88,7 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
               className="recommendation-alert"
               type="warning"
               showIcon
-              title="画像或偏好已经变化"
+              title="画像、偏好或题库内容已经变化"
               description="当前展示的是历史结果，请重新生成后再按最新条件复习。"
             />
           )}

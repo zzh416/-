@@ -132,12 +132,34 @@ def test_recommendation_run_is_explainable_versioned_idempotent_and_owner_scoped
         assert latest.status_code == 200
         assert latest.json()["id"] == run["id"]
 
+        updated_question = client.put(
+            f"/api/v1/questions/{database_question['id']}",
+            json={
+                "prompt": "数据库事务的 ACID 分别代表什么？",
+                "expectedVersion": database_question["version"],
+            },
+        )
+        assert updated_question.status_code == 200
+        assert client.get(f"/api/v1/recommendation-runs/{run['id']}").json()["isCurrent"] is False
+
+        refreshed = client.post(
+            "/api/v1/recommendation-runs",
+            headers={"Idempotency-Key": f"recommendation-{uuid4()}"},
+            json={},
+        )
+        assert refreshed.status_code == 201
+        refreshed_run = refreshed.json()
+        assert refreshed_run["isCurrent"] is True
+
         new_rule = client.post(
             "/api/v1/preference-rules",
             json={"ruleType": "INCLUDE", "technology": "Python", "scope": "BOTH"},
         )
         assert new_rule.status_code == 201
-        assert client.get(f"/api/v1/recommendation-runs/{run['id']}").json()["isCurrent"] is False
+        assert (
+            client.get(f"/api/v1/recommendation-runs/{refreshed_run['id']}").json()["isCurrent"]
+            is False
+        )
 
         with SessionLocal() as db:
             db.add(User(id=other_owner_id, display_name="另一个推荐用户"))

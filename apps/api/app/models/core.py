@@ -409,6 +409,7 @@ class RecommendationRun(Base):
     profile_snapshot: Mapped[dict] = mapped_column(JSON, default=dict, server_default="{}")
     rule_snapshot: Mapped[list[dict]] = mapped_column(JSON, default=list, server_default="[]")
     rules_fingerprint: Mapped[str] = mapped_column(String(64))
+    content_fingerprint: Mapped[str] = mapped_column(String(64), default="", server_default="")
     algorithm_version: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(24), default="SUCCEEDED", server_default="SUCCEEDED")
     total_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
