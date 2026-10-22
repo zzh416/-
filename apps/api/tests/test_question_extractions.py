@@ -270,6 +270,16 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         )
         assert confirmed.status_code == 200
         assert confirmed.json()["reviewStatus"] == "CONFIRMED"
+        review_history = client.get(
+            f"/api/v1/questions/{first_review_item['questionId']}/history"
+        )
+        assert review_history.status_code == 200
+        assert any(
+            item["field"] == "REVIEW_STATUS"
+            and item["previousValue"] == "PENDING"
+            and item["newValue"] == "CONFIRMED"
+            for item in review_history.json()["items"]
+        )
         conflict = client.put(
             f"/api/v1/question-extraction-items/{first_review_item['occurrenceId']}/review",
             json={"action": "REJECT", "expectedStatus": "PENDING"},

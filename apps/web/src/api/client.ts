@@ -140,6 +140,22 @@ export interface QuestionPage {
   missingCount: number
 }
 
+export interface QuestionHistoryEntry {
+  id: string
+  questionId: string
+  occurrenceId: string | null
+  field: 'QUESTION' | 'ANSWER' | 'REVIEW_STATUS'
+  action: 'UPDATED' | 'DELETED' | 'RESTORED'
+  previousValue: string | null
+  newValue: string | null
+  entityVersion: number | null
+  createdAt: string
+}
+
+export interface QuestionHistoryPage {
+  items: QuestionHistoryEntry[]
+}
+
 export type AnswerFilter = 'ANY' | 'ANSWERED' | 'MISSING'
 
 export interface QuestionExtractionRun {
@@ -550,6 +566,25 @@ export const upsertAnswer = (
   questionId: string,
   input: { content: string; expectedVersion: number },
 ) => apiRequest<Answer>(`/api/v1/questions/${questionId}/answer`, jsonRequest('PUT', input))
+
+export const deleteAnswer = (questionId: string, expectedVersion: number) => {
+  const params = new URLSearchParams({ expectedVersion: String(expectedVersion) })
+  return apiRequest<void>(`/api/v1/questions/${questionId}/answer?${params.toString()}`, {
+    method: 'DELETE',
+  })
+}
+
+export const fetchQuestionHistory = (questionId: string) =>
+  apiRequest<QuestionHistoryPage>(`/api/v1/questions/${questionId}/history`)
+
+export const restoreQuestionHistory = (
+  questionId: string,
+  changeId: string,
+  input: { expectedVersion: number; expectedReviewStatus?: ReviewStatus },
+) => apiRequest<Question>(
+  `/api/v1/questions/${questionId}/history/${changeId}/restore`,
+  jsonRequest('POST', input),
+)
 
 export const upsertNote = (
   questionId: string,

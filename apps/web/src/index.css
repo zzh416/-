@@ -609,6 +609,18 @@ textarea {
   border-radius: 8px;
 }
 
+.question-history-values pre {
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: 6px;
+  background: #f5f5f5;
+  color: #1f2937;
+}
+
 .review-list {
   display: grid;
   gap: 0.9rem;

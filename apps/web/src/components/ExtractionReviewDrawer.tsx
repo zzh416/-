@@ -6,6 +6,7 @@ import {
   Drawer,
   Empty,
   Input,
+  List,
   Modal,
   Pagination,
   Popconfirm,
@@ -20,12 +21,16 @@ import { useState } from 'react'
 
 import {
   createMissedQuestion,
+  deleteAnswer,
   fetchExtractionReview,
+  fetchQuestionHistory,
   reviewExtractionItem,
   reviewExtractionItems,
+  restoreQuestionHistory,
   updateQuestion,
   upsertAnswer,
   type ExtractionReviewItem,
+  type QuestionHistoryEntry,
   type ReviewStatus,
   type SuspectedMiss,
   type TextChunk,
@@ -101,6 +106,7 @@ export function ExtractionReviewDrawer({
   } | null>(null)
   const [draft, setDraft] = useState('')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [historyTarget, setHistoryTarget] = useState<ExtractionReviewItem | null>(null)
 
   const review = useQuery({
     queryKey: ['extraction-review', runId, filter, page],
@@ -110,6 +116,12 @@ export function ExtractionReviewDrawer({
         page,
       }),
     enabled: open && Boolean(runId),
+  })
+
+  const history = useQuery({
+    queryKey: ['question-history', historyTarget?.questionId],
+    queryFn: () => fetchQuestionHistory(historyTarget!.questionId),
+    enabled: Boolean(historyTarget),
   })
 
   const activeSelection: Selection =
@@ -201,6 +213,35 @@ export function ExtractionReviewDrawer({
       setEditing(null)
       await refresh()
       notify('success', '修改已保存，请继续确认题答配对')
+    },
+    onError: (error) => notify('error', error.message),
+  })
+
+  const deleteAnswerMutation = useMutation({
+    mutationFn: (item: ExtractionReviewItem) =>
+      deleteAnswer(item.questionId, item.answer!.version),
+    onSuccess: async () => {
+      await refresh()
+      notify('success', '错误答案已删除，题目已转为无答案状态')
+    },
+    onError: (error) => notify('error', error.message),
+  })
+
+  const restoreMutation = useMutation({
+    mutationFn: ({ entry, item }: { entry: QuestionHistoryEntry; item: ExtractionReviewItem }) =>
+      restoreQuestionHistory(item.questionId, entry.id, {
+        expectedVersion:
+          entry.field === 'QUESTION'
+            ? item.questionVersion
+            : entry.field === 'ANSWER'
+              ? item.answer?.version ?? 0
+              : 0,
+        expectedReviewStatus: entry.field === 'REVIEW_STATUS' ? item.reviewStatus : undefined,
+      }),
+    onSuccess: async () => {
+      await refresh()
+      await queryClient.invalidateQueries({ queryKey: ['question-history', historyTarget?.questionId] })
+      notify('success', '已恢复到该次变更前的内容')
     },
     onError: (error) => notify('error', error.message),
   })
@@ -331,12 +372,21 @@ export function ExtractionReviewDrawer({
                               item={item}
                               busy={reviewMutation.isPending && reviewMutation.variables?.item.occurrenceId === item.occurrenceId}
                               selected={selectedIds.includes(item.occurrenceId)}
-                              onSelect={(target, selected) => setSelectedIds((current) => selected ? [...current, target.occurrenceId] : current.filter((id) => id !== target.occurrenceId))}
+                              onSelect={(target, selected) => setSelectedIds((current) => {
+                                if (!selected) {
+                                  return current.filter((id) => id !== target.occurrenceId)
+                                }
+                                return current.includes(target.occurrenceId)
+                                  ? current
+                                  : [...current, target.occurrenceId]
+                              })}
                               onLocate={(target) => locate({ kind: 'item', value: target })}
                               onEdit={(target, kind) => {
                                 setEditing({ item: target, kind })
                                 setDraft(kind === 'question' ? target.prompt : target.answer?.content ?? '')
                               }}
+                              onDeleteAnswer={(target) => deleteAnswerMutation.mutate(target)}
+                              onHistory={setHistoryTarget}
                               onReview={(target, action) => reviewMutation.mutate({ item: target, action })}
                             />
                           ))}
@@ -387,6 +437,63 @@ export function ExtractionReviewDrawer({
         onCancel={() => setEditing(null)}
       >
         <Input.TextArea rows={12} value={draft} onChange={(event) => setDraft(event.target.value)} />
+      </Modal>
+      <Modal
+        title="修改历史"
+        open={Boolean(historyTarget)}
+        footer={null}
+        width={760}
+        onCancel={() => setHistoryTarget(null)}
+      >
+        {history.isLoading && <Skeleton active />}
+        {history.isError && <Alert type="error" title={history.error.message} />}
+        {history.data && (
+          <List
+            locale={{ emptyText: '这道题还没有修改记录' }}
+            dataSource={history.data.items}
+            renderItem={(entry) => {
+              const currentItem = review.data?.items.find(
+                (item) => item.questionId === historyTarget?.questionId,
+              ) ?? historyTarget
+              const fieldLabel = {
+                QUESTION: '问题',
+                ANSWER: '答案',
+                REVIEW_STATUS: '复核状态',
+              }[entry.field]
+              const actionLabel = {
+                UPDATED: '已修改',
+                DELETED: '已删除',
+                RESTORED: '已恢复',
+              }[entry.action]
+              return (
+                <List.Item
+                  actions={currentItem ? [
+                    <Popconfirm
+                      key="restore"
+                      title="恢复到这次变更前？"
+                      description="当前内容会作为新的历史记录保留。"
+                      onConfirm={() => restoreMutation.mutate({ entry, item: currentItem })}
+                    >
+                      <Button size="small" loading={restoreMutation.isPending}>恢复</Button>
+                    </Popconfirm>,
+                  ] : undefined}
+                >
+                  <List.Item.Meta
+                    title={`${fieldLabel} · ${actionLabel} · ${new Date(entry.createdAt).toLocaleString()}`}
+                    description={(
+                      <div className="question-history-values">
+                        <Typography.Text type="secondary">变更前</Typography.Text>
+                        <pre>{entry.previousValue ?? '（空）'}</pre>
+                        <Typography.Text type="secondary">变更后</Typography.Text>
+                        <pre>{entry.newValue ?? '（空）'}</pre>
+                      </div>
+                    )}
+                  />
+                </List.Item>
+              )
+            }}
+          />
+        )}
       </Modal>
     </Drawer>
   )

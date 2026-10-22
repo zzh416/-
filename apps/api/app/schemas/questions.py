@@ -79,3 +79,24 @@ class QuestionPage(APIModel):
     total: int
     answered_count: int
     missing_count: int
+
+
+class QuestionHistoryEntryView(APIModel):
+    id: UUID
+    question_id: UUID
+    occurrence_id: UUID | None
+    field: Literal["QUESTION", "ANSWER", "REVIEW_STATUS"]
+    action: Literal["UPDATED", "DELETED", "RESTORED"]
+    previous_value: str | None
+    new_value: str | None
+    entity_version: int | None
+    created_at: datetime
+
+
+class QuestionHistoryPage(APIModel):
+    items: list[QuestionHistoryEntryView]
+
+
+class QuestionHistoryRestore(APIModel):
+    expected_version: int = Field(ge=0)
+    expected_review_status: Literal["PENDING", "CONFIRMED", "REJECTED"] | None = None

@@ -16,13 +16,15 @@ interface Props {
   onSelect: (item: ExtractionReviewItem, selected: boolean) => void
   onLocate: (item: ExtractionReviewItem) => void
   onEdit: (item: ExtractionReviewItem, kind: 'question' | 'answer') => void
+  onDeleteAnswer: (item: ExtractionReviewItem) => void
+  onHistory: (item: ExtractionReviewItem) => void
   onReview: (
     item: ExtractionReviewItem,
     action: 'CONFIRM' | 'REJECT' | 'RESET',
   ) => void
 }
 
-export function ExtractionReviewCard({ item, busy, selected, onSelect, onLocate, onEdit, onReview }: Props) {
+export function ExtractionReviewCard({ item, busy, selected, onSelect, onLocate, onEdit, onDeleteAnswer, onHistory, onReview }: Props) {
   const status = statusMeta[item.reviewStatus]
   return (
     <article className={`review-card review-card-${item.reviewStatus.toLowerCase()}`}>
@@ -73,6 +75,16 @@ export function ExtractionReviewCard({ item, busy, selected, onSelect, onLocate,
         <Button size="small" onClick={() => onEdit(item, 'answer')}>
           {item.answer ? '修改答案' : '补充答案'}
         </Button>
+        {item.answer && (
+          <Popconfirm
+            title="删除这个答案？"
+            description="题目会保留为无答案状态，可在修改历史中恢复。"
+            onConfirm={() => onDeleteAnswer(item)}
+          >
+            <Button size="small" danger loading={busy}>删除答案</Button>
+          </Popconfirm>
+        )}
+        <Button size="small" onClick={() => onHistory(item)}>修改历史</Button>
         {item.reviewStatus === 'PENDING' && (
           <>
             <Button

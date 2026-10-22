@@ -17,15 +17,19 @@ from app.models import (
     AssetVersion,
     Collection,
     Question,
+    QuestionChange,
     QuestionNote,
     QuestionOccurrence,
     TextChunk,
 )
+from app.modules.question_history import record_question_change
 from app.schemas.questions import (
     AnswerView,
     NoteView,
     QuestionCreate,
     QuestionPage,
+    QuestionHistoryPage,
+    QuestionHistoryRestore,
     QuestionUpdate,
     QuestionView,
     VersionedContentUpdate,
@@ -50,6 +54,21 @@ def _get_question(db: Session, question_id: UUID, owner_id: UUID, lock: bool = F
     if question is None:
         raise HTTPException(status_code=404, detail="题目不存在")
     return question
+
+
+def _next_answer_version(
+    db: Session,
+    question_id: UUID,
+    current_version: int = 0,
+) -> int:
+    """Keep answer versions increasing even after the answer row is deleted."""
+    latest_history_version = db.scalar(
+        select(func.max(QuestionChange.entity_version)).where(
+            QuestionChange.question_id == question_id,
+            QuestionChange.field == "ANSWER",
+        )
+    )
+    return max(current_version, latest_history_version or 0) + 1
 
 
 @router.post("", response_model=QuestionView, status_code=status.HTTP_201_CREATED)
@@ -211,8 +230,19 @@ def update_question(
     question = _get_question(db, question_id, owner_id, lock=True)
     if question.version != payload.expected_version:
         raise HTTPException(status_code=409, detail="题目已被修改，请刷新后重试")
+    previous_prompt = question.prompt
     question.prompt = payload.prompt
     question.version += 1
+    record_question_change(
+        db,
+        question_id=question.id,
+        owner_id=owner_id,
+        field="QUESTION",
+        action="UPDATED",
+        previous_value=previous_prompt,
+        new_value=question.prompt,
+        entity_version=question.version,
+    )
     db.commit()
     return _get_question(db, question_id, owner_id)
 
@@ -235,20 +265,178 @@ def upsert_answer(
             owner_id=owner_id,
             content=payload.content,
             source_type="USER_WRITTEN",
+            version=_next_answer_version(db, question.id),
         )
-        answer.revisions.append(AnswerRevision(version=1, content=payload.content))
+        answer.revisions.append(AnswerRevision(version=answer.version, content=payload.content))
         db.add(answer)
+        previous_content = None
     else:
         answer = question.answer
         if answer.version != payload.expected_version:
             raise HTTPException(status_code=409, detail="答案已被修改，请刷新后重试")
-        answer.version += 1
+        previous_content = answer.content
+        answer.version = _next_answer_version(db, question.id, answer.version)
         answer.content = payload.content
         answer.source_type = "USER_WRITTEN"
         answer.revisions.append(AnswerRevision(version=answer.version, content=payload.content))
+    record_question_change(
+        db,
+        question_id=question.id,
+        owner_id=owner_id,
+        field="ANSWER",
+        action="UPDATED",
+        previous_value=previous_content,
+        new_value=payload.content,
+        entity_version=answer.version,
+    )
     db.commit()
     db.refresh(answer)
     return answer
+
+
+@router.delete("/{question_id}/answer", status_code=status.HTTP_204_NO_CONTENT)
+def delete_answer(
+    question_id: UUID,
+    expected_version: int = Query(alias="expectedVersion", ge=1),
+    db: Session = Depends(get_db),
+    owner_id: UUID = Depends(get_current_user_id),
+) -> None:
+    question = _get_question(db, question_id, owner_id, lock=True)
+    answer = question.answer
+    if answer is None:
+        raise HTTPException(status_code=404, detail="答案不存在")
+    if answer.version != expected_version:
+        raise HTTPException(status_code=409, detail="答案已被修改，请刷新后重试")
+    record_question_change(
+        db,
+        question_id=question.id,
+        owner_id=owner_id,
+        field="ANSWER",
+        action="DELETED",
+        previous_value=answer.content,
+        new_value=None,
+        entity_version=_next_answer_version(db, question.id, answer.version),
+    )
+    db.delete(answer)
+    db.commit()
+
+
+@router.get("/{question_id}/history", response_model=QuestionHistoryPage)
+def list_question_history(
+    question_id: UUID,
+    db: Session = Depends(get_db),
+    owner_id: UUID = Depends(get_current_user_id),
+) -> QuestionHistoryPage:
+    _get_question(db, question_id, owner_id)
+    items = db.scalars(
+        select(QuestionChange)
+        .where(
+            QuestionChange.question_id == question_id,
+            QuestionChange.owner_id == owner_id,
+        )
+        .order_by(QuestionChange.created_at.desc(), QuestionChange.id.desc())
+        .limit(100)
+    ).all()
+    return QuestionHistoryPage(items=list(items))
+
+
+@router.post(
+    "/{question_id}/history/{change_id}/restore",
+    response_model=QuestionView,
+)
+def restore_question_history(
+    question_id: UUID,
+    change_id: UUID,
+    payload: QuestionHistoryRestore,
+    db: Session = Depends(get_db),
+    owner_id: UUID = Depends(get_current_user_id),
+) -> Question:
+    question = _get_question(db, question_id, owner_id, lock=True)
+    change = db.scalar(
+        select(QuestionChange).where(
+            QuestionChange.id == change_id,
+            QuestionChange.question_id == question.id,
+            QuestionChange.owner_id == owner_id,
+        )
+    )
+    if change is None:
+        raise HTTPException(status_code=404, detail="修改记录不存在")
+
+    if change.field == "QUESTION":
+        if question.version != payload.expected_version:
+            raise HTTPException(status_code=409, detail="题目已被修改，请刷新后重试")
+        if change.previous_value is None:
+            raise HTTPException(status_code=409, detail="该记录没有可恢复的题目内容")
+        current_value = question.prompt
+        question.prompt = change.previous_value
+        question.version += 1
+        entity_version = question.version
+    elif change.field == "ANSWER":
+        answer = question.answer
+        current_version = answer.version if answer is not None else 0
+        if current_version != payload.expected_version:
+            raise HTTPException(status_code=409, detail="答案已被修改，请刷新后重试")
+        current_value = answer.content if answer is not None else None
+        next_answer_version = _next_answer_version(db, question.id, current_version)
+        if change.previous_value is None:
+            if answer is not None:
+                db.delete(answer)
+            entity_version = next_answer_version
+        elif answer is None:
+            answer = Answer(
+                question=question,
+                owner_id=owner_id,
+                content=change.previous_value,
+                source_type="USER_WRITTEN",
+                version=next_answer_version,
+            )
+            answer.revisions.append(
+                AnswerRevision(version=answer.version, content=change.previous_value)
+            )
+            db.add(answer)
+            entity_version = answer.version
+        else:
+            answer.version = next_answer_version
+            answer.content = change.previous_value
+            answer.source_type = "USER_WRITTEN"
+            answer.revisions.append(
+                AnswerRevision(version=answer.version, content=change.previous_value)
+            )
+            entity_version = answer.version
+    elif change.field == "REVIEW_STATUS":
+        if change.occurrence_id is None or change.previous_value is None:
+            raise HTTPException(status_code=409, detail="该记录没有可恢复的复核状态")
+        occurrence = db.scalar(
+            select(QuestionOccurrence)
+            .where(
+                QuestionOccurrence.id == change.occurrence_id,
+                QuestionOccurrence.question_id == question.id,
+            )
+            .with_for_update()
+        )
+        if occurrence is None:
+            raise HTTPException(status_code=409, detail="原复核项已不存在")
+        if occurrence.review_status != payload.expected_review_status:
+            raise HTTPException(status_code=409, detail="复核状态已变化，请刷新后重试")
+        current_value = occurrence.review_status
+        occurrence.review_status = change.previous_value
+        entity_version = None
+    else:
+        raise HTTPException(status_code=409, detail="不支持恢复该类修改记录")
+
+    record_question_change(
+        db,
+        question_id=question.id,
+        owner_id=owner_id,
+        field=change.field,
+        action="RESTORED",
+        previous_value=current_value,
+        new_value=change.previous_value,
+        entity_version=entity_version,
+        occurrence_id=change.occurrence_id,
+    )
+    db.commit()
+    return _get_question(db, question_id, owner_id)
 
 
 @router.put("/{question_id}/note", response_model=NoteView)

@@ -95,6 +95,57 @@ def test_question_answer_note_search_and_version_conflicts() -> None:
         )
         assert stale.status_code == 409
 
+        history = client.get(f"/api/v1/questions/{question_id}/history")
+        assert history.status_code == 200
+        answer_changes = [
+            item for item in history.json()["items"] if item["field"] == "ANSWER"
+        ]
+        assert answer_changes[0]["previousValue"] == "GIL 是 CPython 的全局解释器锁。"
+        assert answer_changes[0]["newValue"] == "更新后的答案"
+
+        stale_delete = client.delete(
+            f"/api/v1/questions/{question_id}/answer",
+            params={"expectedVersion": 1},
+        )
+        assert stale_delete.status_code == 409
+        deleted_answer = client.delete(
+            f"/api/v1/questions/{question_id}/answer",
+            params={"expectedVersion": 2},
+        )
+        assert deleted_answer.status_code == 204
+        assert client.get(f"/api/v1/questions/{question_id}").json()["answer"] is None
+
+        history = client.get(f"/api/v1/questions/{question_id}/history").json()
+        deletion = next(item for item in history["items"] if item["action"] == "DELETED")
+        assert deletion["previousValue"] == "更新后的答案"
+        assert deletion["newValue"] is None
+
+        restored = client.post(
+            f"/api/v1/questions/{question_id}/history/{deletion['id']}/restore",
+            json={"expectedVersion": 0},
+        )
+        assert restored.status_code == 200
+        assert restored.json()["answer"]["content"] == "更新后的答案"
+        assert restored.json()["answer"]["version"] == 4
+
+        stale_after_restore = client.put(
+            f"/api/v1/questions/{question_id}/answer",
+            json={"content": "不应覆盖恢复后的答案", "expectedVersion": 1},
+        )
+        assert stale_after_restore.status_code == 409
+
+        renamed = client.put(
+            f"/api/v1/questions/{question_id}",
+            json={"prompt": "请解释 Python 的 GIL。", "expectedVersion": 1},
+        )
+        assert renamed.status_code == 200
+        question_history = client.get(f"/api/v1/questions/{question_id}/history").json()
+        prompt_change = next(
+            item for item in question_history["items"] if item["field"] == "QUESTION"
+        )
+        assert prompt_change["previousValue"] == "Python 的 GIL 是什么？"
+        assert prompt_change["newValue"] == "请解释 Python 的 GIL。"
+
         noted = client.put(
             f"/api/v1/questions/{question_id}/note",
             json={"content": "复习时补充线程切换例子", "expectedVersion": 0},
@@ -130,6 +181,7 @@ def test_question_can_have_no_answer_and_is_owner_scoped() -> None:
 
         app.dependency_overrides[get_current_user_id] = lambda: uuid4()
         assert client.get(f"/api/v1/questions/{question_id}").status_code == 404
+        assert client.get(f"/api/v1/questions/{question_id}/history").status_code == 404
     finally:
         app.dependency_overrides.clear()
         if question_id is not None:

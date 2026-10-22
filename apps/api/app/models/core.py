@@ -249,6 +249,25 @@ class QuestionOccurrence(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class QuestionChange(Base):
+    __tablename__ = "question_changes"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    question_id: Mapped[UUID] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"), index=True
+    )
+    occurrence_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("question_occurrences.id", ondelete="SET NULL"), index=True, nullable=True
+    )
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    field: Mapped[str] = mapped_column(String(24))
+    action: Mapped[str] = mapped_column(String(24))
+    previous_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    entity_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Answer(Base):
     __tablename__ = "answers"
 

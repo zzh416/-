@@ -20,6 +20,7 @@ from app.models import (
     QuestionOccurrence,
     TextChunk,
 )
+from app.modules.question_history import record_question_change
 from app.schemas.extractions import (
     ExtractionAnswerView,
     ExtractionReviewBulkResult,
@@ -459,7 +460,19 @@ def update_extraction_review_item(
     occurrence, question, answer, source_chunk = row
     if occurrence.review_status != payload.expected_status:
         raise HTTPException(status_code=409, detail="复核状态已变化，请刷新后重试")
+    previous_status = occurrence.review_status
     occurrence.review_status = _REVIEW_ACTION_STATUS[payload.action]
+    if previous_status != occurrence.review_status:
+        record_question_change(
+            db,
+            question_id=question.id,
+            owner_id=owner_id,
+            field="REVIEW_STATUS",
+            action="UPDATED",
+            previous_value=previous_status,
+            new_value=occurrence.review_status,
+            occurrence_id=occurrence.id,
+        )
     db.commit()
     db.refresh(occurrence)
     return _review_item(occurrence, question, answer, source_chunk)
@@ -496,7 +509,20 @@ def update_extraction_review_items(
         if occurrence.review_status != item.expected_status:
             raise HTTPException(status_code=409, detail="部分复核状态已变化，请刷新后重试")
     for item in payload.items:
-        rows_by_id[item.occurrence_id][0].review_status = _REVIEW_ACTION_STATUS[item.action]
+        occurrence, question, _, _ = rows_by_id[item.occurrence_id]
+        previous_status = occurrence.review_status
+        occurrence.review_status = _REVIEW_ACTION_STATUS[item.action]
+        if previous_status != occurrence.review_status:
+            record_question_change(
+                db,
+                question_id=question.id,
+                owner_id=owner_id,
+                field="REVIEW_STATUS",
+                action="UPDATED",
+                previous_value=previous_status,
+                new_value=occurrence.review_status,
+                occurrence_id=occurrence.id,
+            )
     db.commit()
     return ExtractionReviewBulkResult(
         items=[_review_item(*rows_by_id[item.occurrence_id]) for item in payload.items],
