@@ -117,8 +117,59 @@ def _validated_span(
     )
 
 
-def _question_prompt(quote: str) -> str:
-    return re.sub(r"^\s{0,3}#{1,6}\s*", "", quote).strip()
+def _question_prompt(quote: str, *, answer_offset: int | None = None) -> str:
+    candidate = quote
+    if answer_offset is not None and 0 < answer_offset < len(candidate):
+        candidate = candidate[:answer_offset].rstrip()
+        emphasized_questions: list[str] = []
+        for segment in re.findall(r"\*\*(.+?)\*\*", candidate):
+            markers = list(re.finditer(r"[?？]", segment))
+            if markers:
+                emphasized_questions.append(segment[: markers[-1].end()].strip())
+        if emphasized_questions:
+            candidate = " ".join(emphasized_questions)
+        else:
+            markers = list(re.finditer(r"[?？]", candidate))
+            if markers:
+                candidate = candidate[: markers[-1].end()]
+        candidate = candidate.replace("**", "")
+    return re.sub(r"^\s{0,3}#{1,6}\s*", "", candidate).strip()
+
+
+_QUESTION_CUE = re.compile(
+    r"(?:为什么|为何|怎么|如何|什么|哪些|哪个|是否|能否|几种|区别|作用|原理)",
+    re.IGNORECASE,
+)
+_QUESTION_REQUEST = re.compile(
+    r"^(?:请|介绍|解释|说说|说一下|谈谈|讲讲|聊聊|描述|简述|分析|比较)",
+    re.IGNORECASE,
+)
+_NUMBERED_TOPIC = re.compile(r"^(?:\*{0,2})?\d+(?:\.\d+)*[.、]\s*\S")
+_NON_QUESTION_RESPONSE = re.compile(
+    r"^(?:答案|答[:：]|解析|这道题|暂时不会|不会|不知道|待补充)",
+    re.IGNORECASE,
+)
+_DECLARATIVE_MARKER = re.compile(
+    r"(?:就是|指的是|主要是|就会|意味着|要略微|可以继续|负责|用于)",
+    re.IGNORECASE,
+)
+
+
+def _initial_review_status(question_quote: str) -> str:
+    """Conservatively hide clear answer prose while keeping question-style titles reviewable."""
+
+    prompt = _question_prompt(question_quote)
+    if not prompt or _NON_QUESTION_RESPONSE.search(prompt):
+        return "REJECTED"
+    if "?" in prompt or "？" in prompt:
+        return "PENDING"
+    if _QUESTION_CUE.search(prompt) or _QUESTION_REQUEST.search(prompt):
+        return "PENDING"
+    if re.match(r"^\s{0,3}#{1,6}\s*", question_quote) or _NUMBERED_TOPIC.search(prompt):
+        return "PENDING"
+    if re.search(r"[。.;；:：]\s*$", prompt) or _DECLARATIVE_MARKER.search(prompt):
+        return "REJECTED"
+    return "PENDING"
 
 
 def process_question_extraction_run(
@@ -257,16 +308,29 @@ def process_question_extraction_run(
                     source_chunk, question_quote, question_start, question_end = (
                         _validated_span(chunk_map, pair.question)
                     )
-                    prompt = _question_prompt(question_quote)
+                    validated_answers = [
+                        _validated_span(chunk_map, span) for span in pair.answer_spans
+                    ]
+                    overlapping_answer_offsets = [
+                        answer_start - question_start
+                        for answer_chunk, _, answer_start, _ in validated_answers
+                        if answer_chunk.id == source_chunk.id
+                        and question_start < answer_start < question_end
+                    ]
+                    prompt = _question_prompt(
+                        pair.question.quote,
+                        answer_offset=(
+                            min(overlapping_answer_offsets)
+                            if overlapping_answer_offsets
+                            else None
+                        ),
+                    )
                     if not prompt:
                         raise TextModelError(
                             "TEXT_MODEL_SOURCE_MISMATCH",
                             "模型返回了空题目",
                             retryable=False,
                         )
-                    validated_answers = [
-                        _validated_span(chunk_map, span) for span in pair.answer_spans
-                    ]
                 except TextModelError:
                     validation_failures += 1
                     continue
@@ -342,7 +406,7 @@ def process_question_extraction_run(
                     answer_quote=answer_text,
                     answer_spans=answer_spans,
                     confidence=pair.confidence,
-                    review_status="PENDING",
+                    review_status=_initial_review_status(pair.question.quote),
                 )
                 db.add(occurrence)
                 created_by_range[source_key] = (question, occurrence)
