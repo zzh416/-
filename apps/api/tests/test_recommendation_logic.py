@@ -90,3 +90,15 @@ def test_include_rule_increases_relevance_without_hiding_other_questions() -> No
     assert neutral_result.decision == "INCLUDED"
     assert python_result.score > neutral_result.score
     assert "PREFERENCE_MATCH" in python_result.reason_codes
+
+
+def test_framework_skill_does_not_claim_match_for_every_parent_language_question() -> None:
+    result = build_recommendation(
+        prompt="Python 的 GIL 是什么？",
+        answer=None,
+        skills=[SkillSnapshot("fastapi", "FastAPI", "FRAMEWORK", "CONFIRMED")],
+        rules=[],
+    )
+
+    assert "PROFILE_SKILL_MATCH" not in result.reason_codes
+    assert all("FastAPI" not in reason for reason in result.reasons)

@@ -7,7 +7,7 @@ import re
 from app.modules.technology_catalog import TECHNOLOGIES, Technology, get_technology
 
 
-ALGORITHM_VERSION = "p3.5-v1"
+ALGORITHM_VERSION = "p3.5-v2"
 
 
 @dataclass(frozen=True)
@@ -88,7 +88,7 @@ def _matches_dependency(rule_or_skill: str, dependency: str) -> bool:
 
 
 def _related_to_skill(skill: str, dependency: str) -> bool:
-    return _matches_dependency(skill, dependency) or _matches_dependency(dependency, skill)
+    return _matches_dependency(skill, dependency)
 
 
 def _language_roots(canonical_names: set[str]) -> set[str]:
