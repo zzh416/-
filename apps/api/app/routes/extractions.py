@@ -1,5 +1,4 @@
 """资料题答抽取任务接口。"""
-import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -21,6 +20,11 @@ from app.models import (
     TextChunk,
 )
 from app.modules.question_history import record_question_change
+from app.modules.question_miss_detection import (
+    CoveredQuestionRange,
+    MissDetectionBlock,
+    find_suspected_questions,
+)
 from app.schemas.extractions import (
     ExtractionAnswerView,
     ExtractionReviewBulkResult,
@@ -36,18 +40,6 @@ from app.workers.celery_app import celery_app
 
 router = APIRouter(tags=["question-extractions"])
 
-_QUESTION_LEAD_PATTERN = re.compile(
-    r"^(?:(?:[-*+>]\s*)|(?:\d+[.、)）]\s*))*"
-    r"(?:\*{1,2})?"
-    r"(?:什么是|为什么|为何|如何|怎么|怎样|说说|介绍(?:一下)?|请介绍|谈谈|"
-    r"是否|哪些|哪种|哪几|能否|有什么|什么情况下|什么时候)"
-)
-_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})\s+(\S.*)$")
-_NUMBERED_TITLE_PATTERN = re.compile(r"^(?:\*{1,2})?\d+[.、)）]\s*\S")
-_TITLE_QUESTION_HINT_PATTERN = re.compile(
-    r"(?:区别|对比|原理|作用|流程|过程|方式|机制|定义|分类|特点|优缺点|"
-    r"场景|优化|调优|实现|攻击|问题)"
-)
 _REVIEW_ACTION_STATUS = {
     "CONFIRM": "CONFIRMED",
     "REJECT": "REJECTED",
@@ -121,76 +113,38 @@ def _review_item(
 def _suspected_misses(
     chunks: list[TextChunk], occurrences: list[QuestionOccurrence]
 ) -> list[SuspectedMissView]:
-    covered: dict[UUID, list[tuple[int, int]]] = {}
-    for occurrence in occurrences:
-        if occurrence.source_chunk_id is not None:
-            covered.setdefault(occurrence.source_chunk_id, []).append(
-                (occurrence.question_start, occurrence.question_end)
+    detected = find_suspected_questions(
+        [
+            MissDetectionBlock(
+                key=chunk.id,
+                ordinal=chunk.ordinal,
+                content=chunk.content,
+                locator=chunk.locator,
             )
-
-    misses: list[SuspectedMissView] = []
-    for chunk in chunks:
-        offset = 0
-        for raw_line in chunk.content.splitlines(keepends=True):
-            line = raw_line.rstrip("\r\n")
-            stripped = line.strip()
-            start = offset + len(line) - len(line.lstrip())
-            end = start + len(stripped)
-            offset += len(raw_line)
-            if not stripped or end <= start:
-                continue
-            reason = None
-            candidate_text = re.sub(r"\]\([^)]*\)", "]", stripped)
-            candidate_text = re.sub(r"https?://\S+", "", candidate_text)
-            question_mark_positions = [
-                position
-                for position in (candidate_text.find("？"), candidate_text.find("?"))
-                if position >= 0
-            ]
-            first_question_mark = min(question_mark_positions, default=-1)
-            heading = _HEADING_PATTERN.match(line)
-            heading_level = len(heading.group(1)) if heading else 0
-            heading_text = heading.group(2).strip() if heading else ""
-            if 0 <= first_question_mark <= 120:
-                reason = "QUESTION_MARK"
-            elif (
-                heading
-                and len(stripped) <= 160
-                and (
-                    _QUESTION_LEAD_PATTERN.search(heading_text)
-                    or (
-                        _NUMBERED_TITLE_PATTERN.match(heading_text)
-                        and (
-                            heading_level >= 3
-                            or _TITLE_QUESTION_HINT_PATTERN.search(heading_text)
-                        )
-                    )
-                )
-            ):
-                reason = "HEADING"
-            elif len(stripped) <= 160 and _QUESTION_LEAD_PATTERN.search(candidate_text):
-                reason = "QUESTION_PATTERN"
-            if reason is None:
-                continue
-            if any(
-                start < covered_end and end > covered_start
-                for covered_start, covered_end in covered.get(chunk.id, [])
-            ):
-                continue
-            misses.append(
-                SuspectedMissView(
-                    source_chunk_id=chunk.id,
-                    source_block_ordinal=chunk.ordinal,
-                    source_locator=chunk.locator,
-                    start=start,
-                    end=end,
-                    quote=stripped,
-                    reason=reason,
-                )
+            for chunk in chunks
+        ],
+        [
+            CoveredQuestionRange(
+                block_key=occurrence.source_chunk_id,
+                start=occurrence.question_start,
+                end=occurrence.question_end,
             )
-            if len(misses) >= 100:
-                return misses
-    return misses
+            for occurrence in occurrences
+            if occurrence.source_chunk_id is not None
+        ],
+    )
+    return [
+        SuspectedMissView(
+            source_chunk_id=item.block_key,
+            source_block_ordinal=item.block_ordinal,
+            source_locator=item.locator,
+            start=item.start,
+            end=item.end,
+            quote=item.quote,
+            reason=item.reason,
+        )
+        for item in detected
+    ]
 
 
 @router.post(

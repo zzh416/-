@@ -14,8 +14,8 @@ from app.modules.question_extraction_service import process_question_extraction_
 from app.modules.question_extraction_service import (
     LoadedChunk,
     _build_extraction_batches,
-    _initial_review_status,
-    _question_prompt,
+    initial_review_status,
+    question_prompt_from_quote,
 )
 
 client = TestClient(app)
@@ -34,34 +34,34 @@ def test_extraction_batches_overlap_without_losing_source_order() -> None:
 
 
 def test_declarative_answer_sentences_are_rejected_but_question_titles_are_kept() -> None:
-    assert _initial_review_status("三次同样的ACK就会触发快速重传。") == "REJECTED"
+    assert initial_review_status("三次同样的ACK就会触发快速重传。") == "REJECTED"
     assert (
-        _initial_review_status("窗口大小就是指无需等待确认应答的最大值。")
+        initial_review_status("窗口大小就是指无需等待确认应答的最大值。")
         == "REJECTED"
     )
-    assert _initial_review_status("需要 TIME-WAIT 状态，主要是两个原因：") == "REJECTED"
-    assert _initial_review_status("这道题暂时不会") == "REJECTED"
-    assert _initial_review_status("#### 13.调度算法") == "PENDING"
-    assert _initial_review_status("介绍一下 langgraph 这个框架。") == "PENDING"
-    assert _initial_review_status("根因置信度不够时，怎么拿到更多上下文。") == "PENDING"
+    assert initial_review_status("需要 TIME-WAIT 状态，主要是两个原因：") == "REJECTED"
+    assert initial_review_status("这道题暂时不会") == "REJECTED"
+    assert initial_review_status("#### 13.调度算法") == "PENDING"
+    assert initial_review_status("介绍一下 langgraph 这个框架。") == "PENDING"
+    assert initial_review_status("根因置信度不够时，怎么拿到更多上下文。") == "PENDING"
 
 
 def test_question_prompt_removes_an_answer_embedded_in_the_same_source_block() -> None:
     first = "**TCP 协议有哪些缺陷？**主要有四个方面：升级困难。"
-    assert _question_prompt(first, answer_offset=16) == "TCP 协议有哪些缺陷？"
+    assert question_prompt_from_quote(first, answer_offset=16) == "TCP 协议有哪些缺陷？"
 
     multiple = (
         "**服务器出现大量 TIME_WAIT 状态的原因有哪些？**说明服务器主动断开了很多 TCP 连接，"
         "**什么场景下服务端会主动断开连接呢？**第一个场景：没有使用长连接。"
     )
     answer_offset = multiple.index("第一个场景")
-    assert _question_prompt(multiple, answer_offset=answer_offset) == (
+    assert question_prompt_from_quote(multiple, answer_offset=answer_offset) == (
         "服务器出现大量 TIME_WAIT 状态的原因有哪些？ "
         "什么场景下服务端会主动断开连接呢？"
     )
 
     multi_sentence_question = "流程固定吗？还是可以使用自由的 agent loop 方式。"
-    assert _question_prompt(multi_sentence_question) == multi_sentence_question
+    assert question_prompt_from_quote(multi_sentence_question) == multi_sentence_question
 
 
 def _create_collection() -> str:

@@ -1,0 +1,28 @@
+{
+  "name": "结构化 Python 问答",
+  "source_format": "MARKDOWN",
+  "blocks": [
+    {"ordinal": 0, "content": "### 1. 什么是 Python GIL？"},
+    {"ordinal": 1, "content": "GIL 是 CPython 解释器中的全局解释器锁，同一时刻只允许一个线程执行 Python 字节码。"},
+    {"ordinal": 2, "content": "### 2. 列表和元组有什么区别？"},
+    {"ordinal": 3, "content": "列表是可变序列，元组是不可变序列。"},
+    {"ordinal": 4, "content": "### 3. 装饰器有什么作用？"},
+    {"ordinal": 5, "content": "### 4. yield 的作用是什么？"},
+    {"ordinal": 6, "content": "yield 会暂停函数并保存执行状态，再次迭代时从暂停处继续执行。"},
+    {"ordinal": 7, "content": "### 5. 深拷贝和浅拷贝有什么区别？"},
+    {"ordinal": 8, "content": "### 6. 什么是上下文管理器？"},
+    {"ordinal": 9, "content": "上下文管理器通过进入和退出协议管理资源，with 语句可以确保资源被释放。"},
+    {"ordinal": 10, "content": "### 7. 协程和线程有什么区别？"},
+    {"ordinal": 11, "content": "### 8. Python 的垃圾回收机制是什么？"}
+  ],
+  "expected": [
+    {"prompt": "什么是 Python GIL？", "answer": "GIL 是 CPython 解释器中的全局解释器锁，同一时刻只允许一个线程执行 Python 字节码。"},
+    {"prompt": "列表和元组有什么区别？", "answer": "列表是可变序列，元组是不可变序列。"},
+    {"prompt": "装饰器有什么作用？", "answer": null},
+    {"prompt": "yield 的作用是什么？", "answer": "yield 会暂停函数并保存执行状态，再次迭代时从暂停处继续执行。"},
+    {"prompt": "深拷贝和浅拷贝有什么区别？", "answer": null},
+    {"prompt": "什么是上下文管理器？", "answer": "上下文管理器通过进入和退出协议管理资源，with 语句可以确保资源被释放。"},
+    {"prompt": "协程和线程有什么区别？", "answer": null},
+    {"prompt": "Python 的垃圾回收机制是什么？", "answer": null}
+  ]
+}

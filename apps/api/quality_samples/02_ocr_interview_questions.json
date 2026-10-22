@@ -1,0 +1,20 @@
+{
+  "name": "截图 OCR 面经问题列表",
+  "source_format": "IMAGE_OCR",
+  "blocks": [
+    {
+      "ordinal": 0,
+      "content": "项目：\n先介绍一下上一段的实习\n介绍一下 langgraph 这个框架。\n你刚才介绍了它有几个流程，这几个流程是固定的吗？还是比较自由的 agent loop 方式。\n如果置信度不够的话，后续怎么拿到更多上下文？\n说一下 RAG 的概念原理，以及你这边怎么使用的？\n从向量数据库检索完之后，为什么要经过重排？\n向量数据库里面的数据有重复的吗？\n文档切块时可能把完整语义切断，有什么办法优化？"
+    }
+  ],
+  "expected": [
+    {"prompt": "先介绍一下上一段的实习", "answer": null},
+    {"prompt": "介绍一下 langgraph 这个框架。", "answer": null},
+    {"prompt": "你刚才介绍了它有几个流程，这几个流程是固定的吗？还是比较自由的 agent loop 方式。", "answer": null},
+    {"prompt": "如果置信度不够的话，后续怎么拿到更多上下文？", "answer": null},
+    {"prompt": "说一下 RAG 的概念原理，以及你这边怎么使用的？", "answer": null},
+    {"prompt": "从向量数据库检索完之后，为什么要经过重排？", "answer": null},
+    {"prompt": "向量数据库里面的数据有重复的吗？", "answer": null},
+    {"prompt": "文档切块时可能把完整语义切断，有什么办法优化？", "answer": null}
+  ]
+}

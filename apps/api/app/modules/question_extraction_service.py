@@ -117,7 +117,7 @@ def _validated_span(
     )
 
 
-def _question_prompt(quote: str, *, answer_offset: int | None = None) -> str:
+def question_prompt_from_quote(quote: str, *, answer_offset: int | None = None) -> str:
     candidate = quote
     if answer_offset is not None and 0 < answer_offset < len(candidate):
         candidate = candidate[:answer_offset].rstrip()
@@ -155,10 +155,10 @@ _DECLARATIVE_MARKER = re.compile(
 )
 
 
-def _initial_review_status(question_quote: str) -> str:
+def initial_review_status(question_quote: str) -> str:
     """Conservatively hide clear answer prose while keeping question-style titles reviewable."""
 
-    prompt = _question_prompt(question_quote)
+    prompt = question_prompt_from_quote(question_quote)
     if not prompt or _NON_QUESTION_RESPONSE.search(prompt):
         return "REJECTED"
     if "?" in prompt or "？" in prompt:
@@ -317,7 +317,7 @@ def process_question_extraction_run(
                         if answer_chunk.id == source_chunk.id
                         and question_start < answer_start < question_end
                     ]
-                    prompt = _question_prompt(
+                    prompt = question_prompt_from_quote(
                         pair.question.quote,
                         answer_offset=(
                             min(overlapping_answer_offsets)
@@ -406,7 +406,7 @@ def process_question_extraction_run(
                     answer_quote=answer_text,
                     answer_spans=answer_spans,
                     confidence=pair.confidence,
-                    review_status=_initial_review_status(pair.question.quote),
+                    review_status=initial_review_status(pair.question.quote),
                 )
                 db.add(occurrence)
                 created_by_range[source_key] = (question, occurrence)
