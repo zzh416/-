@@ -214,6 +214,11 @@ export interface ExtractionReviewPage {
   suspectedMisses: SuspectedMiss[]
 }
 
+export interface ExtractionReviewBulkResult {
+  items: ExtractionReviewItem[]
+  updatedCount: number
+}
+
 export type ProfileExtractionStatus =
   | 'EMPTY'
   | 'IDLE'
@@ -472,6 +477,21 @@ export const reviewExtractionItem = (
 ) =>
   apiRequest<ExtractionReviewItem>(
     `/api/v1/question-extraction-items/${occurrenceId}/review`,
+    jsonRequest('PUT', input),
+  )
+
+export const reviewExtractionItems = (
+  runId: string,
+  input: {
+    items: Array<{
+      occurrenceId: string
+      action: 'CONFIRM' | 'REJECT' | 'RESET'
+      expectedStatus: ReviewStatus
+    }>
+  },
+) =>
+  apiRequest<ExtractionReviewBulkResult>(
+    `/api/v1/question-extraction-runs/${runId}/review-items`,
     jsonRequest('PUT', input),
   )
 

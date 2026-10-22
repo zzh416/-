@@ -22,6 +22,8 @@ from app.models import (
 )
 from app.schemas.extractions import (
     ExtractionAnswerView,
+    ExtractionReviewBulkResult,
+    ExtractionReviewBulkUpdate,
     ExtractionReviewItemView,
     ExtractionReviewPage,
     ExtractionReviewUpdate,
@@ -45,6 +47,11 @@ _TITLE_QUESTION_HINT_PATTERN = re.compile(
     r"(?:区别|对比|原理|作用|流程|过程|方式|机制|定义|分类|特点|优缺点|"
     r"场景|优化|调优|实现|攻击|问题)"
 )
+_REVIEW_ACTION_STATUS = {
+    "CONFIRM": "CONFIRMED",
+    "REJECT": "REJECTED",
+    "RESET": "PENDING",
+}
 
 
 def _owned_run(db: Session, run_id: UUID, owner_id: UUID) -> QuestionExtractionRun:
@@ -452,14 +459,49 @@ def update_extraction_review_item(
     occurrence, question, answer, source_chunk = row
     if occurrence.review_status != payload.expected_status:
         raise HTTPException(status_code=409, detail="复核状态已变化，请刷新后重试")
-    occurrence.review_status = {
-        "CONFIRM": "CONFIRMED",
-        "REJECT": "REJECTED",
-        "RESET": "PENDING",
-    }[payload.action]
+    occurrence.review_status = _REVIEW_ACTION_STATUS[payload.action]
     db.commit()
     db.refresh(occurrence)
     return _review_item(occurrence, question, answer, source_chunk)
+
+
+@router.put(
+    "/question-extraction-runs/{run_id}/review-items",
+    response_model=ExtractionReviewBulkResult,
+)
+def update_extraction_review_items(
+    run_id: UUID,
+    payload: ExtractionReviewBulkUpdate,
+    db: Session = Depends(get_db),
+    owner_id: UUID = Depends(get_current_user_id),
+) -> ExtractionReviewBulkResult:
+    run = _owned_run(db, run_id, owner_id)
+    occurrence_ids = [item.occurrence_id for item in payload.items]
+    rows = db.execute(
+        select(QuestionOccurrence, Question, Answer, TextChunk)
+        .join(Question, Question.id == QuestionOccurrence.question_id)
+        .outerjoin(Answer, Answer.question_id == Question.id)
+        .outerjoin(TextChunk, TextChunk.id == QuestionOccurrence.source_chunk_id)
+        .where(
+            QuestionOccurrence.extraction_run_id == run.id,
+            QuestionOccurrence.id.in_(occurrence_ids),
+        )
+        .with_for_update(of=QuestionOccurrence)
+    ).all()
+    rows_by_id = {row[0].id: row for row in rows}
+    if len(rows_by_id) != len(occurrence_ids):
+        raise HTTPException(status_code=404, detail="部分抽取复核项不存在")
+    for item in payload.items:
+        occurrence = rows_by_id[item.occurrence_id][0]
+        if occurrence.review_status != item.expected_status:
+            raise HTTPException(status_code=409, detail="部分复核状态已变化，请刷新后重试")
+    for item in payload.items:
+        rows_by_id[item.occurrence_id][0].review_status = _REVIEW_ACTION_STATUS[item.action]
+    db.commit()
+    return ExtractionReviewBulkResult(
+        items=[_review_item(*rows_by_id[item.occurrence_id]) for item in payload.items],
+        updated_count=len(payload.items),
+    )
 
 
 @router.post(

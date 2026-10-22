@@ -52,6 +52,23 @@ class ExtractionReviewUpdate(APIModel):
     expected_status: ReviewStatus
 
 
+class ExtractionReviewBulkItem(APIModel):
+    occurrence_id: UUID
+    action: Literal["CONFIRM", "REJECT", "RESET"]
+    expected_status: ReviewStatus
+
+
+class ExtractionReviewBulkUpdate(APIModel):
+    items: list[ExtractionReviewBulkItem] = Field(min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def occurrence_ids_must_be_unique(self) -> "ExtractionReviewBulkUpdate":
+        occurrence_ids = [item.occurrence_id for item in self.items]
+        if len(occurrence_ids) != len(set(occurrence_ids)):
+            raise ValueError("批量复核项不能重复")
+        return self
+
+
 class MissedQuestionCreate(APIModel):
     source_chunk_id: UUID
     start: int = Field(ge=0)
@@ -109,6 +126,11 @@ class ExtractionReviewItemView(APIModel):
     confidence: float
     review_status: ReviewStatus
     created_at: datetime
+
+
+class ExtractionReviewBulkResult(APIModel):
+    items: list[ExtractionReviewItemView]
+    updated_count: int
 
 
 class SuspectedMissView(APIModel):

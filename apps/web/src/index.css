@@ -601,6 +601,14 @@ textarea {
   border-bottom: 1px solid #e5e8eb;
 }
 
+.review-bulk-actions {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  background: #f7f9fc;
+  border: 1px solid #e5e8eb;
+  border-radius: 8px;
+}
+
 .review-list {
   display: grid;
   gap: 0.9rem;

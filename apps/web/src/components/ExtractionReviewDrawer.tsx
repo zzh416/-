@@ -2,11 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert,
   Button,
+  Checkbox,
   Drawer,
   Empty,
   Input,
   Modal,
   Pagination,
+  Popconfirm,
   Radio,
   Skeleton,
   Space,
@@ -20,6 +22,7 @@ import {
   createMissedQuestion,
   fetchExtractionReview,
   reviewExtractionItem,
+  reviewExtractionItems,
   updateQuestion,
   upsertAnswer,
   type ExtractionReviewItem,
@@ -97,6 +100,7 @@ export function ExtractionReviewDrawer({
     kind: 'question' | 'answer'
   } | null>(null)
   const [draft, setDraft] = useState('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
 
   const review = useQuery({
     queryKey: ['extraction-review', runId, filter, page],
@@ -132,6 +136,31 @@ export function ExtractionReviewDrawer({
       setSelection({ kind: 'item', value: updated })
       await refresh()
       notify('success', updated.reviewStatus === 'CONFIRMED' ? '已确认' : updated.reviewStatus === 'REJECTED' ? '已拒绝并从题库隐藏' : '已恢复为待复核')
+    },
+    onError: (error) => notify('error', error.message),
+  })
+
+  const selectedItems = review.data?.items.filter((item) => selectedIds.includes(item.occurrenceId)) ?? []
+  const selectedArePending = selectedItems.length > 0 && selectedItems.every((item) => item.reviewStatus === 'PENDING')
+  const selectedAreReviewed = selectedItems.length > 0 && selectedItems.every((item) => item.reviewStatus !== 'PENDING')
+  const pageIds = review.data?.items.map((item) => item.occurrenceId) ?? []
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id))
+  const somePageSelected = pageIds.some((id) => selectedIds.includes(id))
+
+  const bulkReviewMutation = useMutation({
+    mutationFn: (action: 'CONFIRM' | 'REJECT' | 'RESET') =>
+      reviewExtractionItems(runId!, {
+        items: selectedItems.map((item) => ({
+          occurrenceId: item.occurrenceId,
+          action,
+          expectedStatus: item.reviewStatus,
+        })),
+      }),
+    onSuccess: async (result) => {
+      setSelectedIds([])
+      setSelection(result.items[0] ? { kind: 'item', value: result.items[0] } : null)
+      await refresh()
+      notify('success', `已批量更新 ${result.updatedCount} 条复核结果`)
     },
     onError: (error) => notify('error', error.message),
   })
@@ -240,6 +269,7 @@ export function ExtractionReviewDrawer({
                             setFilter(event.target.value)
                             setPage(1)
                             setSelection(null)
+                            setSelectedIds([])
                           }}
                           optionType="button"
                           buttonStyle="solid"
@@ -250,12 +280,58 @@ export function ExtractionReviewDrawer({
                             { label: '已拒绝', value: 'REJECTED' },
                           ]}
                         />
+                        <div className="review-bulk-actions">
+                          <Space wrap>
+                            <Checkbox
+                              checked={allPageSelected}
+                              indeterminate={!allPageSelected && somePageSelected}
+                              onChange={(event) => setSelectedIds(event.target.checked ? pageIds : [])}
+                            >
+                              选择本页
+                            </Checkbox>
+                            <Typography.Text type="secondary">已选 {selectedItems.length} 条</Typography.Text>
+                            <Button
+                              size="small"
+                              type="primary"
+                              disabled={!selectedArePending}
+                              loading={bulkReviewMutation.isPending}
+                              onClick={() => bulkReviewMutation.mutate('CONFIRM')}
+                            >
+                              批量确认
+                            </Button>
+                            <Popconfirm
+                              title={`拒绝选中的 ${selectedItems.length} 条结果？`}
+                              description="拒绝后会从普通题库隐藏，复核记录仍会保留。"
+                              disabled={!selectedArePending}
+                              onConfirm={() => bulkReviewMutation.mutate('REJECT')}
+                            >
+                              <Button
+                                size="small"
+                                danger
+                                disabled={!selectedArePending}
+                                loading={bulkReviewMutation.isPending}
+                              >
+                                批量拒绝
+                              </Button>
+                            </Popconfirm>
+                            <Button
+                              size="small"
+                              disabled={!selectedAreReviewed}
+                              loading={bulkReviewMutation.isPending}
+                              onClick={() => bulkReviewMutation.mutate('RESET')}
+                            >
+                              批量重新复核
+                            </Button>
+                          </Space>
+                        </div>
                         <div className="review-list">
                           {review.data.items.map((item) => (
                             <ExtractionReviewCard
                               key={item.occurrenceId}
                               item={item}
                               busy={reviewMutation.isPending && reviewMutation.variables?.item.occurrenceId === item.occurrenceId}
+                              selected={selectedIds.includes(item.occurrenceId)}
+                              onSelect={(target, selected) => setSelectedIds((current) => selected ? [...current, target.occurrenceId] : current.filter((id) => id !== target.occurrenceId))}
                               onLocate={(target) => locate({ kind: 'item', value: target })}
                               onEdit={(target, kind) => {
                                 setEditing({ item: target, kind })
@@ -267,7 +343,7 @@ export function ExtractionReviewDrawer({
                           {review.data.items.length === 0 && <Empty description="当前筛选下没有复核项" />}
                         </div>
                         {review.data.total > review.data.pageSize && (
-                          <Pagination current={page} pageSize={review.data.pageSize} total={review.data.total} showSizeChanger={false} onChange={setPage} />
+                          <Pagination current={page} pageSize={review.data.pageSize} total={review.data.total} showSizeChanger={false} onChange={(nextPage) => { setPage(nextPage); setSelectedIds([]) }} />
                         )}
                       </>
                     ),

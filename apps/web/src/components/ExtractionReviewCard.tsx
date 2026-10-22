@@ -1,4 +1,4 @@
-import { Button, Popconfirm, Space, Tag, Typography } from 'antd'
+import { Button, Checkbox, Popconfirm, Space, Tag, Typography } from 'antd'
 
 import type { ExtractionReviewItem } from '../api/client'
 import { SafeMarkdown } from './SafeMarkdown'
@@ -12,6 +12,8 @@ const statusMeta = {
 interface Props {
   item: ExtractionReviewItem
   busy: boolean
+  selected: boolean
+  onSelect: (item: ExtractionReviewItem, selected: boolean) => void
   onLocate: (item: ExtractionReviewItem) => void
   onEdit: (item: ExtractionReviewItem, kind: 'question' | 'answer') => void
   onReview: (
@@ -20,12 +22,17 @@ interface Props {
   ) => void
 }
 
-export function ExtractionReviewCard({ item, busy, onLocate, onEdit, onReview }: Props) {
+export function ExtractionReviewCard({ item, busy, selected, onSelect, onLocate, onEdit, onReview }: Props) {
   const status = statusMeta[item.reviewStatus]
   return (
     <article className={`review-card review-card-${item.reviewStatus.toLowerCase()}`}>
       <div className="review-card-heading">
         <Space wrap>
+          <Checkbox
+            aria-label={`选择题目：${item.prompt}`}
+            checked={selected}
+            onChange={(event) => onSelect(item, event.target.checked)}
+          />
           <Tag color={status.color}>{status.label}</Tag>
           <Tag>{item.answer ? '有原文答案' : '无答案'}</Tag>
           <Typography.Text type="secondary">

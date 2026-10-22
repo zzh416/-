@@ -209,6 +209,61 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         assert refreshed_review["suspectedMisses"] == []
 
         first_review_item = review_payload["items"][0]
+        second_review_item = review_payload["items"][1]
+        bulk_confirmed = client.put(
+            f"/api/v1/question-extraction-runs/{run_id}/review-items",
+            json={
+                "items": [
+                    {
+                        "occurrenceId": first_review_item["occurrenceId"],
+                        "action": "CONFIRM",
+                        "expectedStatus": "PENDING",
+                    },
+                    {
+                        "occurrenceId": second_review_item["occurrenceId"],
+                        "action": "CONFIRM",
+                        "expectedStatus": "PENDING",
+                    },
+                ]
+            },
+        )
+        assert bulk_confirmed.status_code == 200
+        assert bulk_confirmed.json()["updatedCount"] == 2
+        assert {
+            item["reviewStatus"] for item in bulk_confirmed.json()["items"]
+        } == {"CONFIRMED"}
+        stale_bulk = client.put(
+            f"/api/v1/question-extraction-runs/{run_id}/review-items",
+            json={
+                "items": [
+                    {
+                        "occurrenceId": first_review_item["occurrenceId"],
+                        "action": "REJECT",
+                        "expectedStatus": "PENDING",
+                    }
+                ]
+            },
+        )
+        assert stale_bulk.status_code == 409
+        bulk_reset = client.put(
+            f"/api/v1/question-extraction-runs/{run_id}/review-items",
+            json={
+                "items": [
+                    {
+                        "occurrenceId": first_review_item["occurrenceId"],
+                        "action": "RESET",
+                        "expectedStatus": "CONFIRMED",
+                    },
+                    {
+                        "occurrenceId": second_review_item["occurrenceId"],
+                        "action": "RESET",
+                        "expectedStatus": "CONFIRMED",
+                    },
+                ]
+            },
+        )
+        assert bulk_reset.status_code == 200
+
         confirmed = client.put(
             f"/api/v1/question-extraction-items/{first_review_item['occurrenceId']}/review",
             json={"action": "CONFIRM", "expectedStatus": "PENDING"},
@@ -221,7 +276,6 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         )
         assert conflict.status_code == 409
 
-        second_review_item = review_payload["items"][1]
         rejected = client.put(
             f"/api/v1/question-extraction-items/{second_review_item['occurrenceId']}/review",
             json={"action": "REJECT", "expectedStatus": "PENDING"},
@@ -247,6 +301,21 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         assert client.get(f"/api/v1/question-extraction-runs/{run_id}").status_code == 404
         assert (
             client.get(f"/api/v1/question-extraction-runs/{run_id}/review-items").status_code
+            == 404
+        )
+        assert (
+            client.put(
+                f"/api/v1/question-extraction-runs/{run_id}/review-items",
+                json={
+                    "items": [
+                        {
+                            "occurrenceId": first_review_item["occurrenceId"],
+                            "action": "RESET",
+                            "expectedStatus": "CONFIRMED",
+                        }
+                    ]
+                },
+            ).status_code
             == 404
         )
         assert (
