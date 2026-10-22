@@ -413,10 +413,14 @@ textarea {
 
 .profile-technology-select {
   width: 13rem;
+  min-width: 13rem;
+  flex: none;
 }
 
 .profile-scope-select {
   width: 9rem;
+  min-width: 9rem;
+  flex: none;
 }
 
 .profile-rule-list {
@@ -667,5 +671,6 @@ textarea {
   .profile-technology-select,
   .profile-scope-select {
     width: 100%;
+    min-width: 0;
   }
 }
