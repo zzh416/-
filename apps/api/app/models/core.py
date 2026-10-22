@@ -167,6 +167,7 @@ class QuestionExtractionRun(Base):
     question_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     answered_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     missing_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     celery_task_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)

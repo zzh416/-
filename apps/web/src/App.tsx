@@ -40,6 +40,7 @@ import {
   fetchQuestionExtractionRun,
   reviseAsset,
   retryAsset,
+  retryQuestionExtractionRun,
   updateQuestion,
   uploadTextAsset,
   upsertAnswer,
@@ -311,6 +312,16 @@ function App() {
       setExtractionRunId(run.id)
       reportedExtractionRunId.current = null
       messageApi.success('已提交自动整理任务；只提取原文已有的题目和答案')
+    },
+    onError: (error) => messageApi.error(error.message),
+  })
+  const questionExtractionRetry = useMutation({
+    mutationFn: retryQuestionExtractionRun,
+    onSuccess: (run) => {
+      setExtractionRunId(run.id)
+      queryClient.setQueryData(['question-extraction-run', run.id], run)
+      reportedExtractionRunId.current = null
+      messageApi.success('已重新提交自动整理任务；已复核和人工修改的内容会保留')
     },
     onError: (error) => messageApi.error(error.message),
   })
@@ -1018,6 +1029,18 @@ function App() {
                         对照原文复核
                       </Button>
                     )}
+                    {['FAILED', 'PARTIAL_SUCCESS', 'WAITING_FOR_CONFIGURATION'].includes(
+                      extractionRun.data.status,
+                    ) &&
+                      extractionRun.data.retryCount < 3 && (
+                        <Button
+                          size="small"
+                          loading={questionExtractionRetry.isPending}
+                          onClick={() => questionExtractionRetry.mutate(extractionRun.data!.id)}
+                        >
+                          重试整理（{extractionRun.data.retryCount}/3）
+                        </Button>
+                      )}
                   </Space>
                 }
               />

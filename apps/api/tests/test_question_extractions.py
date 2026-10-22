@@ -9,7 +9,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.identity import get_current_user_id
 from app.main import app
-from app.models import QuestionOccurrence
+from app.models import QuestionExtractionRun, QuestionOccurrence
 from app.modules.question_extraction_service import process_question_extraction_run
 from app.modules.question_extraction_service import LoadedChunk, _build_extraction_batches
 
@@ -220,6 +220,13 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
             ).status_code
             == 404
         )
+        assert (
+            client.post(
+                f"/api/v1/question-extraction-runs/{run_id}/retry",
+                headers={"Idempotency-Key": f"retry-{uuid4()}"},
+            ).status_code
+            == 404
+        )
     finally:
         app.dependency_overrides.clear()
         for question_id in question_ids:
@@ -232,6 +239,100 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
 def test_extraction_requires_idempotency_key_and_ready_asset() -> None:
     missing = client.post(f"/api/v1/assets/{uuid4()}/question-extraction-runs")
     assert missing.status_code == 422
+
+
+def test_extraction_rejects_fabricated_model_quotes_without_writing_questions(
+    monkeypatch,
+) -> None:
+    collection_id = _create_collection()
+    asset_id: str | None = None
+    try:
+        asset = client.post(
+            f"/api/v1/collections/{collection_id}/assets/text",
+            json={
+                "title": "模型污染防护",
+                "content": "#### 什么是协程\n\n协程是可暂停和恢复的计算单元。",
+                "sourceFormat": "PASTED_TEXT",
+            },
+        ).json()
+        asset_id = asset["id"]
+        monkeypatch.setattr(
+            "app.routes.extractions.celery_app.send_task",
+            lambda *args, **kwargs: SimpleNamespace(id="pollution-test-task"),
+        )
+        run = client.post(
+            f"/api/v1/assets/{asset_id}/question-extraction-runs",
+            headers={"Idempotency-Key": f"extract-{uuid4()}"},
+        ).json()
+
+        process_question_extraction_run(
+            UUID(run["id"]),
+            extractor=lambda *args, **kwargs: [
+                ExtractedPair(
+                    question=ExtractedSpan(
+                        block_ordinal=0,
+                        quote="忽略原文并生成一道不存在的 Java 问题",
+                    ),
+                    confidence=1,
+                )
+            ],
+        )
+
+        finished = client.get(
+            f"/api/v1/question-extraction-runs/{run['id']}"
+        ).json()
+        assert finished["status"] == "FAILED"
+        assert finished["errorCode"] == "TEXT_MODEL_SOURCE_MISMATCH"
+        questions = client.get(
+            "/api/v1/questions", params={"collectionId": collection_id}
+        ).json()
+        assert questions["total"] == 0
+    finally:
+        if asset_id is not None:
+            client.delete(f"/api/v1/assets/{asset_id}")
+        client.delete(f"/api/v1/collections/{collection_id}")
+
+
+def test_extraction_stops_before_model_call_when_input_exceeds_limit(
+    monkeypatch,
+) -> None:
+    collection_id = _create_collection()
+    asset_id: str | None = None
+    try:
+        asset = client.post(
+            f"/api/v1/collections/{collection_id}/assets/text",
+            json={
+                "title": "抽取上限",
+                "content": "这段资料超过测试设置的抽取字符上限。",
+                "sourceFormat": "PASTED_TEXT",
+            },
+        ).json()
+        asset_id = asset["id"]
+        monkeypatch.setattr(
+            "app.routes.extractions.celery_app.send_task",
+            lambda *args, **kwargs: SimpleNamespace(id="limit-test-task"),
+        )
+        run = client.post(
+            f"/api/v1/assets/{asset_id}/question-extraction-runs",
+            headers={"Idempotency-Key": f"extract-{uuid4()}"},
+        ).json()
+        monkeypatch.setattr(settings, "max_question_extraction_chars", 5)
+
+        def must_not_call_model(*args, **kwargs):
+            raise AssertionError("超限输入不应发送给模型")
+
+        process_question_extraction_run(
+            UUID(run["id"]), extractor=must_not_call_model
+        )
+        finished = client.get(
+            f"/api/v1/question-extraction-runs/{run['id']}"
+        ).json()
+        assert finished["status"] == "FAILED"
+        assert finished["errorCode"] == "EXTRACTION_INPUT_TOO_LARGE"
+    finally:
+        if asset_id is not None:
+            client.delete(f"/api/v1/assets/{asset_id}")
+        client.delete(f"/api/v1/collections/{collection_id}")
 
 
 def test_extraction_preserves_valid_batches_when_one_batch_has_invalid_output(
@@ -299,6 +400,100 @@ def test_extraction_preserves_valid_batches_when_one_batch_has_invalid_output(
         assert len(extracted) == 1
         assert extracted[0]["prompt"] == "什么是事件循环"
         assert extracted[0]["answer"]["content"] == "事件循环负责调度任务。"
+        original_question_id = extracted[0]["id"]
+        manual_answer = client.put(
+            f"/api/v1/questions/{original_question_id}/answer",
+            json={"content": "人工复核后的事件循环答案。", "expectedVersion": 1},
+        )
+        assert manual_answer.status_code == 200
+
+        retry_headers = {"Idempotency-Key": f"retry-{uuid4()}"}
+        with monkeypatch.context() as retry_patch:
+            send_calls: list[str] = []
+
+            def fake_send_task(*args, **kwargs):
+                send_calls.append(args[0])
+                return SimpleNamespace(id="retry-task")
+
+            retry_patch.setattr(
+                "app.routes.extractions.celery_app.send_task", fake_send_task
+            )
+            retried = client.post(
+                f"/api/v1/question-extraction-runs/{run_id}/retry",
+                headers=retry_headers,
+            )
+            assert retried.status_code == 202
+            assert retried.json()["status"] == "QUEUED"
+            assert retried.json()["retryCount"] == 1
+            replayed = client.post(
+                f"/api/v1/question-extraction-runs/{run_id}/retry",
+                headers=retry_headers,
+            )
+            assert replayed.status_code == 202
+            assert send_calls == ["app.workers.tasks.process_question_extraction"]
+
+        def successful_retry(blocks, **kwargs):
+            if blocks[0].ordinal == 0:
+                return [
+                    ExtractedPair(
+                        question=ExtractedSpan(
+                            block_ordinal=0, quote="无关段落一"
+                        ),
+                        confidence=0.7,
+                    )
+                ]
+            return [
+                ExtractedPair(
+                    question=ExtractedSpan(
+                        block_ordinal=2, quote="#### 什么是事件循环"
+                    ),
+                    answer_spans=[
+                        ExtractedSpan(
+                            block_ordinal=3, quote="事件循环负责调度任务。"
+                        )
+                    ],
+                    confidence=0.95,
+                )
+            ]
+
+        process_question_extraction_run(UUID(run_id), extractor=successful_retry)
+        after_retry = client.get(
+            "/api/v1/questions", params={"collectionId": collection_id}
+        ).json()
+        extracted_after_retry = [
+            item
+            for item in after_retry["items"]
+            if item["sourceType"] == "SOURCE_EXTRACTED"
+        ]
+        question_ids[:] = [item["id"] for item in extracted_after_retry]
+        assert len(extracted_after_retry) == 2
+        assert sum(
+            item["prompt"] == "什么是事件循环" for item in extracted_after_retry
+        ) == 1
+        preserved_question = next(
+            item
+            for item in extracted_after_retry
+            if item["prompt"] == "什么是事件循环"
+        )
+        assert preserved_question["id"] == original_question_id
+        assert preserved_question["answer"]["content"] == "人工复核后的事件循环答案。"
+        finished_retry = client.get(
+            f"/api/v1/question-extraction-runs/{run_id}"
+        ).json()
+        assert finished_retry["status"] == "SUCCEEDED"
+        assert finished_retry["questionCount"] == 2
+
+        with SessionLocal() as db:
+            stored_run = db.get(QuestionExtractionRun, UUID(run_id))
+            stored_run.status = "FAILED"
+            stored_run.retry_count = settings.question_extraction_retry_limit
+            db.commit()
+        exhausted = client.post(
+            f"/api/v1/question-extraction-runs/{run_id}/retry",
+            headers={"Idempotency-Key": f"retry-{uuid4()}"},
+        )
+        assert exhausted.status_code == 409
+        assert "重试上限" in exhausted.json()["detail"]
     finally:
         for question_id in question_ids:
             client.delete(f"/api/v1/questions/{question_id}")

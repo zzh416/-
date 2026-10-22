@@ -26,6 +26,7 @@ class QuestionExtractionRunView(APIModel):
     question_count: int
     answered_count: int
     missing_count: int
+    retry_count: int
     model: str | None
     error_code: str | None
     error_message: str | None

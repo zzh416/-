@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import get_db
 from app.identity import get_current_user_id
 from app.idempotency import remember_request, replay_resource_id, request_hash
@@ -288,6 +289,74 @@ def get_question_extraction_run(
     owner_id: UUID = Depends(get_current_user_id),
 ) -> QuestionExtractionRun:
     return _owned_run(db, run_id, owner_id)
+
+
+@router.post(
+    "/question-extraction-runs/{run_id}/retry",
+    response_model=QuestionExtractionRunView,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def retry_question_extraction_run(
+    run_id: UUID,
+    db: Session = Depends(get_db),
+    owner_id: UUID = Depends(get_current_user_id),
+    idempotency_key: str = Header(
+        alias="Idempotency-Key", min_length=8, max_length=200
+    ),
+) -> QuestionExtractionRun:
+    digest = request_hash({"runId": str(run_id)})
+    run = db.scalar(
+        select(QuestionExtractionRun)
+        .where(
+            QuestionExtractionRun.id == run_id,
+            QuestionExtractionRun.owner_id == owner_id,
+        )
+        .with_for_update()
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="题目抽取任务不存在")
+    replay_id = replay_resource_id(
+        db, owner_id, "question-extraction:retry", idempotency_key, digest
+    )
+    if replay_id is not None:
+        return _owned_run(db, replay_id, owner_id)
+    if run.status not in {"FAILED", "PARTIAL_SUCCESS", "WAITING_FOR_CONFIGURATION"}:
+        raise HTTPException(status_code=409, detail="当前抽取任务状态不能重试")
+    if run.retry_count >= settings.question_extraction_retry_limit:
+        raise HTTPException(
+            status_code=409,
+            detail=f"已达到最多 {settings.question_extraction_retry_limit} 次重试上限",
+        )
+
+    run.retry_count += 1
+    run.status = "QUEUED"
+    run.stage = "QUEUED"
+    run.celery_task_id = None
+    run.error_code = None
+    run.error_message = None
+    run.started_at = None
+    run.finished_at = None
+    try:
+        remember_request(
+            db,
+            owner_id,
+            "question-extraction:retry",
+            idempotency_key,
+            digest,
+            run.id,
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        replay_id = replay_resource_id(
+            db, owner_id, "question-extraction:retry", idempotency_key, digest
+        )
+        if replay_id is not None:
+            return _owned_run(db, replay_id, owner_id)
+        raise HTTPException(status_code=409, detail="重复的题目抽取重试请求") from exc
+    _dispatch(db, run)
+    db.refresh(run)
+    return run
 
 
 @router.get(

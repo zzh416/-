@@ -233,11 +233,24 @@ def process_question_extraction_run(
             asset = db.get(Asset, run.asset_id)
             if asset is None:
                 return
-            answered_count = 0
-            seen_ranges: set[tuple[UUID, int, int]] = set()
             created_by_range: dict[
                 tuple[UUID, int, int], tuple[Question, QuestionOccurrence]
             ] = {}
+            existing_rows = db.execute(
+                select(QuestionOccurrence, Question)
+                .join(Question, Question.id == QuestionOccurrence.question_id)
+                .where(QuestionOccurrence.extraction_run_id == run.id)
+            ).all()
+            for occurrence, question in existing_rows:
+                if occurrence.source_chunk_id is None:
+                    continue
+                created_by_range[
+                    (
+                        occurrence.source_chunk_id,
+                        occurrence.question_start,
+                        occurrence.question_end,
+                    )
+                ] = (question, occurrence)
             validation_failures = 0
             for pair in pairs:
                 try:
@@ -274,7 +287,12 @@ def process_question_extraction_run(
                 existing = created_by_range.get(source_key)
                 if existing is not None:
                     existing_question, existing_occurrence = existing
-                    if existing_question.answer is None and answer_text is not None:
+                    if (
+                        existing_question.answer is None
+                        and answer_text is not None
+                        and existing_question.version == 1
+                        and existing_occurrence.review_status == "PENDING"
+                    ):
                         answer = Answer(
                             owner_id=run.owner_id,
                             content=answer_text,
@@ -292,9 +310,7 @@ def process_question_extraction_run(
                         existing_occurrence.confidence = max(
                             existing_occurrence.confidence, pair.confidence
                         )
-                        answered_count += 1
                     continue
-                seen_ranges.add(source_key)
                 question = Question(
                     owner_id=run.owner_id,
                     collection_id=asset.collection_id,
@@ -310,7 +326,6 @@ def process_question_extraction_run(
                     )
                     answer.revisions.append(AnswerRevision(version=1, content=answer_text))
                     question.answer = answer
-                    answered_count += 1
                 db.add(question)
                 db.flush()
                 occurrence = QuestionOccurrence(
@@ -331,10 +346,12 @@ def process_question_extraction_run(
                 )
                 db.add(occurrence)
                 created_by_range[source_key] = (question, occurrence)
-            run.question_count = len(seen_ranges)
-            run.answered_count = answered_count
-            run.missing_count = len(seen_ranges) - answered_count
-            if not seen_ranges and validation_failures:
+            run.question_count = len(created_by_range)
+            run.answered_count = sum(
+                question.answer is not None for question, _ in created_by_range.values()
+            )
+            run.missing_count = run.question_count - run.answered_count
+            if not created_by_range and validation_failures:
                 run.status = "FAILED"
                 run.stage = "VALIDATION"
                 run.error_code = "TEXT_MODEL_SOURCE_MISMATCH"

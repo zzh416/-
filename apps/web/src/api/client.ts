@@ -151,6 +151,7 @@ export interface QuestionExtractionRun {
   questionCount: number
   answeredCount: number
   missingCount: number
+  retryCount: number
   model: string | null
   errorCode: string | null
   errorMessage: string | null
@@ -442,6 +443,12 @@ export const createQuestionExtractionRun = (assetId: string) =>
 
 export const fetchQuestionExtractionRun = (runId: string) =>
   apiRequest<QuestionExtractionRun>(`/api/v1/question-extraction-runs/${runId}`)
+
+export const retryQuestionExtractionRun = (runId: string) =>
+  apiRequest<QuestionExtractionRun>(`/api/v1/question-extraction-runs/${runId}/retry`, {
+    method: 'POST',
+    headers: { 'Idempotency-Key': crypto.randomUUID() },
+  })
 
 export const fetchExtractionReview = (
   runId: string,
