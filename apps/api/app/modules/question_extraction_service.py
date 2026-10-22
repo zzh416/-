@@ -158,7 +158,10 @@ def process_question_extraction_run(
         _finish_failure(
             run_id,
             "EXTRACTION_INPUT_TOO_LARGE",
-            "资料超过单次题目抽取上限；后续将按来源块分批处理",
+            (
+                f"资料正文超过 {settings.max_question_extraction_chars:,} 字抽取上限；"
+                "请精简内容或拆分为多份资料后重试"
+            ),
         )
         return
     batches = _build_extraction_batches(
