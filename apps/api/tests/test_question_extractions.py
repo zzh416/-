@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -128,6 +129,11 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         def fake_extractor(blocks, **kwargs):
             assert [block.ordinal for block in blocks] == [0, 1, 2, 3, 4, 5, 6, 7]
             return [
+                ExtractedPair(
+                    question=ExtractedSpan(block_ordinal=0, quote=first_question),
+                    answer_spans=[ExtractedSpan(block_ordinal=1, quote="零拷贝减少用户态")],
+                    confidence=0.98,
+                ),
                 ExtractedPair(
                     question=ExtractedSpan(block_ordinal=0, quote=first_question),
                     answer_spans=[
@@ -450,8 +456,9 @@ def test_extraction_stops_before_model_call_when_input_exceeds_limit(
         client.delete(f"/api/v1/collections/{collection_id}")
 
 
+@pytest.mark.parametrize("edit_existing_answer", [False, True])
 def test_extraction_preserves_valid_batches_when_one_batch_has_invalid_output(
-    monkeypatch,
+    monkeypatch, edit_existing_answer,
 ) -> None:
     collection_id = _create_collection()
     asset_id: str | None = None
@@ -461,7 +468,7 @@ def test_extraction_preserves_valid_batches_when_one_batch_has_invalid_output(
             f"/api/v1/collections/{collection_id}/assets/text",
             json={
                 "title": "分批容错测试",
-                "content": "无关段落一\n\n无关段落二\n\n#### 什么是事件循环\n\n事件循环负责调度任务。",
+                "content": "无关段落一\n\n无关段落二\n\n#### 什么是事件循环\n\n事件循环负责调度任务。还会处理异步回调。",
                 "sourceFormat": "PASTED_TEXT",
             },
         )
@@ -516,11 +523,12 @@ def test_extraction_preserves_valid_batches_when_one_batch_has_invalid_output(
         assert extracted[0]["prompt"] == "什么是事件循环"
         assert extracted[0]["answer"]["content"] == "事件循环负责调度任务。"
         original_question_id = extracted[0]["id"]
-        manual_answer = client.put(
-            f"/api/v1/questions/{original_question_id}/answer",
-            json={"content": "人工复核后的事件循环答案。", "expectedVersion": 1},
-        )
-        assert manual_answer.status_code == 200
+        if edit_existing_answer:
+            manual_answer = client.put(
+                f"/api/v1/questions/{original_question_id}/answer",
+                json={"content": "人工复核后的事件循环答案。", "expectedVersion": 1},
+            )
+            assert manual_answer.status_code == 200
 
         retry_headers = {"Idempotency-Key": f"retry-{uuid4()}"}
         with monkeypatch.context() as retry_patch:
@@ -564,7 +572,7 @@ def test_extraction_preserves_valid_batches_when_one_batch_has_invalid_output(
                     ),
                     answer_spans=[
                         ExtractedSpan(
-                            block_ordinal=3, quote="事件循环负责调度任务。"
+                            block_ordinal=3, quote="事件循环负责调度任务。还会处理异步回调。"
                         )
                     ],
                     confidence=0.95,
@@ -591,7 +599,9 @@ def test_extraction_preserves_valid_batches_when_one_batch_has_invalid_output(
             if item["prompt"] == "什么是事件循环"
         )
         assert preserved_question["id"] == original_question_id
-        assert preserved_question["answer"]["content"] == "人工复核后的事件循环答案。"
+        assert preserved_question["answer"]["content"] == (
+            "人工复核后的事件循环答案。" if edit_existing_answer else "事件循环负责调度任务。"
+        )
         finished_retry = client.get(
             f"/api/v1/question-extraction-runs/{run_id}"
         ).json()

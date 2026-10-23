@@ -7,6 +7,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.adapters.glm_text import ExtractedPair, ExtractedSpan, ExtractionBlock
+from app.modules.extraction_candidates import prefer_complete_source_answers
 from app.modules.extraction_quality import (
     ExpectedQuestion,
     ExtractionQualityReport,
@@ -116,6 +117,9 @@ def evaluate_quality_sample(
     thresholds: QualityThresholds | None = None,
 ) -> SampleEvaluation:
     blocks = {block.ordinal: block for block in sample.blocks}
+    pairs = prefer_complete_source_answers(
+        pairs, {block.ordinal: block.content for block in sample.blocks}
+    )
     observed_by_range: dict[tuple[int, int, int], ObservedQuestion] = {}
     covered_ranges: list[CoveredQuestionRange] = []
     invalid_candidate_count = 0

@@ -28,6 +28,7 @@ from app.models import (
     QuestionOccurrence,
     TextChunk,
 )
+from app.modules.extraction_candidates import prefer_complete_source_answers
 
 Extractor = Callable[..., list[ExtractedPair]]
 
@@ -179,7 +180,13 @@ def question_prompt_from_quote(quote: str, *, answer_offset: int | None = None) 
             if markers:
                 candidate = candidate[: markers[-1].end()]
         candidate = candidate.replace("**", "")
-    return re.sub(r"^\s{0,3}#{1,6}\s*", "", candidate).strip()
+    candidate = re.sub(r"^\s{0,3}#{1,6}\s*", "", candidate).strip()
+    trailing_label = re.search(
+        r"\s*(?:\*\*|__)?(?:参考答案|答案|答)\s*[:：](?:\*\*|__)?\s*$", candidate
+    )
+    if trailing_label and re.search(r"[?？]", candidate[: trailing_label.start()]):
+        candidate = candidate[: trailing_label.start()].rstrip()
+    return candidate
 
 
 _QUESTION_CUE = re.compile(
@@ -318,6 +325,9 @@ def process_question_extraction_run(
         return
 
     chunk_map = {chunk.ordinal: chunk for chunk in chunks}
+    pairs = prefer_complete_source_answers(
+        pairs, {chunk.ordinal: chunk.content for chunk in chunks}
+    )
     try:
         with SessionLocal() as db:
             run = db.scalar(
