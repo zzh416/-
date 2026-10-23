@@ -1,4 +1,4 @@
-"""GLM adapter for evidence-backed resume profile extraction."""
+"""GLM / DeepSeek compatible adapter for evidence-backed resume profiles."""
 from __future__ import annotations
 
 import json
@@ -55,10 +55,12 @@ def extract_profile_with_glm(
     base_url: str,
     model: str,
     max_output_tokens: int = 4_096,
+    provider: str = "glm",
     client: httpx.Client | None = None,
 ) -> ExtractedProfile:
+    provider_name = "DeepSeek" if provider == "deepseek" else "GLM"
     if not api_key.strip():
-        raise TextModelNotConfigured("尚未配置 GLM_API_KEY")
+        raise TextModelNotConfigured(f"尚未配置 {provider.upper()}_API_KEY")
     if not content.strip():
         return ExtractedProfile()
     endpoint = f"{base_url.rstrip('/')}/chat/completions"
@@ -97,10 +99,14 @@ def extract_profile_with_glm(
             ) from exc
         if response_status in {401, 403}:
             raise TextModelError(
-                "PROFILE_MODEL_AUTH_FAILED", "GLM API Key 无效或无权限", retryable=False
+                "PROFILE_MODEL_AUTH_FAILED", f"{provider_name} API Key 无效或无权限", retryable=False
+            )
+        if provider == "deepseek" and response_status == 402:
+            raise TextModelError(
+                "PROFILE_MODEL_RESOURCE_EXHAUSTED", "DeepSeek 账户余额不足，请检查 API 账户余额后重试", retryable=False
             )
         if response_status == 429:
-            if provider_error_code(response_content) == "1113":
+            if provider == "glm" and provider_error_code(response_content) == "1113":
                 raise TextModelError(
                     "PROFILE_MODEL_RESOURCE_EXHAUSTED", RESOURCE_EXHAUSTED_MESSAGE, retryable=False
                 )

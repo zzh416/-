@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.adapters.glm_profile import ExtractedProfile, extract_profile_with_glm
 from app.adapters.glm_text import TextModelError, TextModelNotConfigured
+from app.adapters.text_provider import get_text_model_config
 from app.config import settings
 from app.db import SessionLocal
 from app.models import Asset, AssetVersion, ProfileSkill, ProfileVersion, UserProfile
@@ -119,6 +120,7 @@ def process_profile_extraction(
     *,
     extractor: ProfileExtractor = extract_profile_with_glm,
 ) -> None:
+    model_config = get_text_model_config()
     with SessionLocal() as db:
         profile = db.scalar(
             select(UserProfile).where(UserProfile.id == profile_id).with_for_update()
@@ -171,18 +173,19 @@ def process_profile_extraction(
     try:
         extracted = extractor(
             content,
-            api_key=settings.glm_api_key,
-            base_url=settings.glm_base_url,
-            model=settings.glm_text_model,
+            api_key=model_config.api_key,
+            base_url=model_config.base_url,
+            model=model_config.model,
+            provider=model_config.provider,
             max_output_tokens=settings.profile_extraction_max_output_tokens,
         )
-    except TextModelNotConfigured:
+    except TextModelNotConfigured as exc:
         _mark_failure(
             profile_id,
             expected_profile_version,
             "WAITING_FOR_CONFIGURATION",
-            "GLM_NOT_CONFIGURED",
-            "请先配置 GLM_API_KEY，再重新提取画像",
+            "TEXT_MODEL_NOT_CONFIGURED",
+            f"{exc}，配置后请重新提取画像",
         )
         return
     except TextModelError as exc:
@@ -248,7 +251,7 @@ def process_profile_extraction(
             skills=list(validated.values()),
             resume_asset_version_id=asset_version_id,
         )
-        profile.model = settings.glm_text_model
+        profile.model = model_config.model
         profile.extraction_status = (
             "PARTIAL_SUCCESS" if validation_failures else "SUCCEEDED"
         )

@@ -18,7 +18,7 @@
 - PDF 文字层、DOCX 段落/标题/表格及旧 `.doc` 转换可在本地完成；旧 `.doc` 由容器内无界面的 LibreOffice 转换。
 - 网页导入拒绝本机、私网、保留地址和非标准端口；静态请求与浏览器请求都会检查目标地址，并限制请求数、响应大小和超时。
 - 链接导入只处理匿名可访问的单个页面；需要登录、验证码或当前章节没有体现在 URL 中时，界面会提示改用粘贴文字或上传文件。
-- 使用 GLM 从当前资料版本自动整理题目；模型结果必须逐字回指原文，单批失败时会保留其他批次的有效结果。
+- 使用 GLM 或 DeepSeek 从当前资料版本自动整理题目；模型结果必须逐字回指原文，单批失败时会保留其他批次的有效结果。
 - 自动区分有答案和无答案问题，不为缺失答案生成占位内容；支持按答案状态、复核状态和关键词筛选。
 - 对照原文逐题确认、修改、拒绝或重置，并通过确定性检查列出疑似漏题，允许从准确原文范围补建。
 - 在独立的“我的画像”中上传和版本化管理简历，提取带原文证据的目标岗位和技能；支持确认、排除、编辑和补充技能。
@@ -47,7 +47,7 @@ cp infra/.env.example infra/.env
 docker compose -f infra/docker-compose.yml up -d --build
 ```
 
-纯文字、文本型 PDF/Word 和网页正文的基础解析不需要模型 API Key。图片、扫描 PDF、Word 内嵌图片 OCR，以及 AI 自动整理题目和简历画像提取，需要在 `infra/.env` 配置 `GLM_API_KEY`。API 容器启动时会先执行 `alembic upgrade head`，然后启动服务。访问地址：
+纯文字、文本型 PDF/Word 和网页正文的基础解析不需要模型 API Key。AI 自动整理题目和简历画像提取通过 `infra/.env` 的 `TEXT_MODEL_PROVIDER=glm|deepseek` 选择文字模型，并使用对应的 `GLM_API_KEY` 或 `DEEPSEEK_API_KEY`；默认 GLM，不自动切换服务商。图片、扫描 PDF、Word 内嵌图片 OCR 仍独立使用 `GLM_API_KEY`。修改配置后执行 `docker compose -f infra/docker-compose.yml up -d --force-recreate api worker`。API 启动时先执行 `alembic upgrade head`。访问地址：
 
 - 前端：http://127.0.0.1:5173
 - API 文档：http://127.0.0.1:9000/api/docs

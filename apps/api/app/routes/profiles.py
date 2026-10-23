@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, Uplo
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.adapters.text_provider import get_text_model_config
 from app.config import settings
 from app.db import get_db
 from app.identity import get_current_user_id
@@ -216,7 +217,7 @@ def start_profile_extraction(
     if asset.status not in {"READY", "PARTIAL_SUCCESS"} or asset.current_version < 1:
         raise HTTPException(status_code=409, detail="简历尚未解析完成")
     profile.extraction_status = "PROCESSING"
-    profile.model = settings.glm_text_model
+    profile.model = get_text_model_config().model
     profile.error_code = None
     profile.error_message = None
     profile.version += 1

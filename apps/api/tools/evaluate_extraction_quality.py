@@ -1,4 +1,4 @@
-"""Run live GLM extraction against versioned gold samples."""
+"""Run the configured text model against versioned gold samples."""
 from __future__ import annotations
 
 import argparse
@@ -12,6 +12,7 @@ from app.adapters.glm_text import (
     TextModelNotConfigured,
     extract_questions_with_glm,
 )
+from app.adapters.text_provider import get_text_model_config
 from app.config import settings
 from app.modules.extraction_quality import (
     ExtractionQualityReport,
@@ -132,15 +133,17 @@ def main() -> int:
         print("没有找到金样本 JSON 文件", file=sys.stderr)
         return 2
     thresholds = QualityThresholds()
+    model_config = get_text_model_config()
     evaluations: list[SampleEvaluation] = []
     try:
         for path in paths:
             sample = load_quality_sample(path)
             pairs = extract_questions_with_glm(
                 extraction_blocks(sample),
-                api_key=settings.glm_api_key,
-                base_url=settings.glm_base_url,
-                model=settings.glm_text_model,
+                api_key=model_config.api_key,
+                base_url=model_config.base_url,
+                model=model_config.model,
+                provider=model_config.provider,
                 max_output_tokens=settings.question_extraction_max_output_tokens,
             )
             evaluations.append(
@@ -164,9 +167,10 @@ def main() -> int:
             )
             pairs = extract_questions_with_glm(
                 extraction_blocks(sample),
-                api_key=settings.glm_api_key,
-                base_url=settings.glm_base_url,
-                model=settings.glm_text_model,
+                api_key=model_config.api_key,
+                base_url=model_config.base_url,
+                model=model_config.model,
+                provider=model_config.provider,
                 max_output_tokens=settings.question_extraction_max_output_tokens,
             )
             evaluations.append(
@@ -179,7 +183,7 @@ def main() -> int:
         print(f"金样本抽取失败：{exc.code}：{exc}", file=sys.stderr)
         return 2
 
-    report = _render_report(evaluations, thresholds, settings.glm_text_model)
+    report = _render_report(evaluations, thresholds, model_config.model)
     if args.output:
         args.output.write_text(report, encoding="utf-8")
     print(report)

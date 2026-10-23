@@ -1,5 +1,6 @@
 """应用配置：从环境变量 / .env 读取。"""
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -48,7 +49,8 @@ class Settings(BaseSettings):
     renderer_url: str = "http://renderer:9100"
     renderer_timeout_seconds: float = 30.0
 
-    # 模型网关 —— 默认 GLM，DeepSeek 降级
+    # 文字模型显式选择；图片 OCR 始终使用独立的 GLM 配置。
+    text_model_provider: Literal["glm", "deepseek"] = "glm"
     glm_api_key: str = Field(default="", repr=False)
     glm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     glm_text_model: str = "glm-4-plus"

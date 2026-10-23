@@ -11,6 +11,6 @@ cd apps/api
 python -m tools.evaluate_extraction_quality --samples quality_samples --output quality-report.md
 ```
 
-该命令会把根目录金样本文字发送到项目配置的 GLM 文本模型，但默认不会处理 `images/`。取得资料所有者对本次外部处理的明确同意后，才可增加 `--include-images`；此参数会把图片发送到 GLM OCR，并把 OCR 文字发送到 GLM 文本模型。测试套件不会自动调用外部模型。
+该命令会把根目录金样本文字发送到 `TEXT_MODEL_PROVIDER` 指定的 GLM 或 DeepSeek，但默认不会处理 `images/`。取得资料所有者对本次服务商和处理范围的明确同意后，才可增加 `--include-images`；此参数把图片发送到 GLM OCR，再把 OCR 文字发送到所选文字模型。测试套件不会自动调用外部模型。切换服务商不会改变严格原文引用校验或质量门槛。
 
 默认门槛为：原始题目召回率 95%、疑似漏题辅助召回率 98%、用户可见题目准确率 98%、答案状态准确率 95%、答案配对准确率 95%。题目采用一对一匹配；只允许长度不少于 8 个字符且字符相似度至少 97% 的 OCR 微小差异，并在报告中单独列出，不能用语义相似度掩盖漏题或错题。

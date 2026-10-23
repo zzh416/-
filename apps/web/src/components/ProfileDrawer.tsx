@@ -80,7 +80,7 @@ const extractionLabels: Record<string, string> = {
   PROCESSING: '正在提取',
   SUCCEEDED: '提取完成',
   PARTIAL_SUCCESS: '部分完成',
-  WAITING_FOR_CONFIGURATION: '等待 GLM 配置',
+  WAITING_FOR_CONFIGURATION: '等待文本模型配置',
   FAILED: '提取失败',
 }
 

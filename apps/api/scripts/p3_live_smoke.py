@@ -136,7 +136,7 @@ def main() -> None:
             run.raise_for_status()
             result = _wait_for_run(client, run.json()["id"])
             if result["status"] == "WAITING_FOR_CONFIGURATION":
-                print("P3 live extraction: SKIPPED because GLM_API_KEY is not configured")
+                print("P3 live extraction: SKIPPED because the selected text model is not configured")
                 return
             assert result["status"] in {"SUCCEEDED", "PARTIAL_SUCCESS"}, result
             review_response = client.get(

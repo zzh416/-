@@ -84,6 +84,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bagu}
       REDIS_URL: redis://redis:6379/0
       DATA_DIR: /data
+      TEXT_MODEL_PROVIDER: ${TEXT_MODEL_PROVIDER:-glm}
       GLM_API_KEY: ${GLM_API_KEY:-}
       GLM_BASE_URL: ${GLM_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
       GLM_TEXT_MODEL: ${GLM_TEXT_MODEL:-glm-4-plus}
@@ -119,6 +120,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bagu}
       REDIS_URL: redis://redis:6379/0
       DATA_DIR: /data
+      TEXT_MODEL_PROVIDER: ${TEXT_MODEL_PROVIDER:-glm}
       GLM_API_KEY: ${GLM_API_KEY:-}
       GLM_BASE_URL: ${GLM_BASE_URL:-https://open.bigmodel.cn/api/paas/v4}
       GLM_TEXT_MODEL: ${GLM_TEXT_MODEL:-glm-4-plus}

@@ -1,9 +1,11 @@
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.adapters.glm_profile import ExtractedProfile, ExtractedProfileSkill
+from app.config import settings
 from app.db import SessionLocal
 from app.identity import get_current_user_id
 from app.main import app
@@ -31,7 +33,11 @@ def _delete_user(owner_id: UUID) -> None:
             db.commit()
 
 
-def test_resume_profile_extraction_and_versioned_skill_edits(monkeypatch) -> None:
+@pytest.mark.parametrize("provider", ["glm", "deepseek"])
+def test_resume_profile_extraction_and_versioned_skill_edits(monkeypatch, provider) -> None:
+    monkeypatch.setattr(settings, "text_model_provider", provider)
+    monkeypatch.setattr(settings, f"{provider}_text_model", f"{provider}-test-text")
+    monkeypatch.setattr(settings, f"{provider}_api_key", "selected-test-key")
     owner_id = _test_user()
     resume_text = "目标岗位：Python 后端工程师\n熟练使用 Python 和 FastAPI，了解 MySQL。"
     try:
@@ -59,8 +65,12 @@ def test_resume_profile_extraction_and_versioned_skill_edits(monkeypatch) -> Non
         assert started.status_code == 202
         started_payload = started.json()
         assert started_payload["extractionStatus"] == "PROCESSING"
+        assert started_payload["model"] == f"{provider}-test-text"
 
         def fake_extractor(content, **kwargs):
+            assert kwargs["provider"] == provider
+            assert kwargs["model"] == f"{provider}-test-text"
+            assert kwargs["api_key"] == "selected-test-key"
             assert content == resume_text
             return ExtractedProfile(
                 target_role="Python 后端工程师",
@@ -91,6 +101,7 @@ def test_resume_profile_extraction_and_versioned_skill_edits(monkeypatch) -> Non
         )
         extracted = client.get("/api/v1/profiles/me").json()
         assert extracted["extractionStatus"] == "SUCCEEDED"
+        assert extracted["model"] == f"{provider}-test-text"
         assert extracted["targetRole"] == "Python 后端工程师"
         assert extracted["currentVersion"] == 1
         assert {item["canonicalName"] for item in extracted["skills"]} == {

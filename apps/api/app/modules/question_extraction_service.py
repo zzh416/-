@@ -17,6 +17,7 @@ from app.adapters.glm_text import (
     TextModelNotConfigured,
     extract_questions_with_glm,
 )
+from app.adapters.text_provider import get_text_model_config
 from app.config import settings
 from app.db import SessionLocal
 from app.models import (
@@ -230,6 +231,7 @@ def process_question_extraction_run(
     *,
     extractor: Extractor = extract_questions_with_glm,
 ) -> None:
+    model_config = get_text_model_config()
     with SessionLocal() as db:
         run = db.scalar(
             select(QuestionExtractionRun)
@@ -240,7 +242,7 @@ def process_question_extraction_run(
             return
         run.status = "PROCESSING"
         run.stage = "MODEL"
-        run.model = settings.glm_text_model
+        run.model = model_config.model
         run.started_at = datetime.now(timezone.utc)
         run.error_code = None
         run.error_message = None
@@ -285,17 +287,18 @@ def process_question_extraction_run(
                         ExtractionBlock(ordinal=chunk.ordinal, content=chunk.content)
                         for chunk in batch
                     ],
-                    api_key=settings.glm_api_key,
-                    base_url=settings.glm_base_url,
-                    model=settings.glm_text_model,
+                    api_key=model_config.api_key,
+                    base_url=model_config.base_url,
+                    model=model_config.model,
+                    provider=model_config.provider,
                     max_output_tokens=settings.question_extraction_max_output_tokens,
                 )
             )
-        except TextModelNotConfigured:
+        except TextModelNotConfigured as exc:
             _finish_failure(
                 run_id,
-                "GLM_NOT_CONFIGURED",
-                "请先配置 GLM_API_KEY，再重新发起题目抽取",
+                "TEXT_MODEL_NOT_CONFIGURED",
+                f"{exc}，配置后请重新发起题目抽取",
                 status="WAITING_FOR_CONFIGURATION",
             )
             return

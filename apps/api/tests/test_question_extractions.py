@@ -74,7 +74,11 @@ def _create_collection() -> str:
     return response.json()["id"]
 
 
-def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) -> None:
+@pytest.mark.parametrize("provider", ["glm", "deepseek"])
+def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch, provider) -> None:
+    monkeypatch.setattr(settings, "text_model_provider", provider)
+    monkeypatch.setattr(settings, f"{provider}_text_model", f"{provider}-test-text")
+    monkeypatch.setattr(settings, f"{provider}_api_key", "selected-test-key")
     collection_id = _create_collection()
     asset_id: str | None = None
     question_ids: list[str] = []
@@ -127,6 +131,9 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         second_question = "#### 32.I/O 多路复用"
 
         def fake_extractor(blocks, **kwargs):
+            assert kwargs["provider"] == provider
+            assert kwargs["model"] == f"{provider}-test-text"
+            assert kwargs["api_key"] == "selected-test-key"
             assert [block.ordinal for block in blocks] == [0, 1, 2, 3, 4, 5, 6, 7]
             return [
                 ExtractedPair(
@@ -152,6 +159,7 @@ def test_extraction_run_is_idempotent_and_persists_source_evidence(monkeypatch) 
         finished = client.get(f"/api/v1/question-extraction-runs/{run_id}")
         assert finished.status_code == 200
         assert finished.json()["status"] == "SUCCEEDED"
+        assert finished.json()["model"] == f"{provider}-test-text"
         assert finished.json()["questionCount"] == 2
         assert finished.json()["answeredCount"] == 1
         assert finished.json()["missingCount"] == 1
