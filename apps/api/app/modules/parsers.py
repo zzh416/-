@@ -151,7 +151,9 @@ def parse_pdf(
                 locator={"page": index},
             )
         )
-        is_missing = len(normalized) < 8
+        # 答案可能只有几个字续在末页；短原生文字并不等于缺失。
+        # 图片页仍由 has_images 独立触发 OCR。
+        is_missing = not normalized
         has_images = _resources_have_images(page.get("/Resources"))
         if is_missing:
             missing_pages.append(index)

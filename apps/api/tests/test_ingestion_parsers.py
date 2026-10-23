@@ -125,14 +125,28 @@ def test_pdf_parser_extracts_text_and_marks_blank_pages_for_ocr() -> None:
     assert blank.ocr_units[0].content_type == "application/pdf"
 
 
-def test_pdf_parser_marks_text_page_with_embedded_image_for_page_ocr() -> None:
+@pytest.mark.parametrize("text", ["Agent.", "RAG", "A"])
+def test_pdf_parser_preserves_short_native_text_without_ocr(text: str) -> None:
     result = parse_pdf(
-        _text_and_image_pdf("Native text before screenshot"),
+        _text_pdf(text),
         max_pages=100,
         max_content_stream_bytes=1024 * 1024,
     )
 
-    assert result.blocks[0].content == "Native text before screenshot"
+    assert result.blocks[0].content == text
+    assert result.missing_units == []
+    assert result.ocr_units == []
+
+
+@pytest.mark.parametrize("text", ["Native text before screenshot", "Agent."])
+def test_pdf_parser_marks_text_page_with_embedded_image_for_page_ocr(text: str) -> None:
+    result = parse_pdf(
+        _text_and_image_pdf(text),
+        max_pages=100,
+        max_content_stream_bytes=1024 * 1024,
+    )
+
+    assert result.blocks[0].content == text
     assert result.blocks[0].locator == {"page": 1}
     assert result.missing_units == []
     assert len(result.ocr_units) == 1
