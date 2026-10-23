@@ -16,6 +16,7 @@ from app.modules.extraction_quality import (
 )
 from app.modules.question_extraction_service import (
     initial_review_status,
+    is_answer_label_only,
     question_prompt_from_quote,
 )
 from app.modules.question_miss_detection import (
@@ -142,7 +143,9 @@ def evaluate_quality_sample(
         if not prompt:
             invalid_candidate_count += 1
             continue
-        answer_texts = [span[1] for span in valid_answers if span[1]]
+        answer_texts = [
+            span[1] for span in valid_answers if span[1] and not is_answer_label_only(span[1])
+        ]
         observed = ObservedQuestion(
             prompt=prompt,
             answer="\n\n".join(answer_texts) if answer_texts else None,

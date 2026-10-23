@@ -14,6 +14,7 @@ from app.adapters.glm_text import (
 )
 from app.config import settings
 from app.modules.extraction_quality import (
+    ExtractionQualityReport,
     QualityThresholds,
     aggregate_quality_reports,
 )
@@ -29,6 +30,12 @@ from app.modules.extraction_quality_runner import (
 
 def _percent(value: float) -> str:
     return f"{value * 100:.1f}%"
+
+
+def _answer_completeness(report: ExtractionQualityReport) -> str:
+    if not report.answered_match_count:
+        return "不适用（无带答案匹配题）"
+    return _percent(report.answer_pair_accuracy)
 
 
 def _render_report(
@@ -55,7 +62,7 @@ def _render_report(
         f"| 疑似漏题辅助召回率 | {_percent(overall.assisted_question_recall)} | {_percent(thresholds.assisted_recall)} |",
         f"| 用户可见题目准确率 | {_percent(overall.visible_precision)} | {_percent(thresholds.visible_precision)} |",
         f"| 有/无答案状态准确率 | {_percent(overall.answer_state_accuracy)} | {_percent(thresholds.answer_state_accuracy)} |",
-        f"| 已回答题目的答案配对准确率 | {_percent(overall.answer_pair_accuracy)} | {_percent(thresholds.answer_pair_accuracy)} |",
+        f"| 原文答案完整一致率（严格） | {_answer_completeness(overall)} | {_percent(thresholds.answer_pair_accuracy)} |",
         "",
         (
             f"共 {overall.expected_count} 道预期题，模型产生 {overall.observed_count} 条有效候选；"
@@ -67,7 +74,7 @@ def _render_report(
         "",
         "## 分样本结果",
         "",
-        "| 样本 | 来源格式 | 预期题数 | 召回率 | 辅助召回率 | 可见准确率 | 答案状态 | 答案配对 | 非法候选 |",
+        "| 样本 | 来源格式 | 预期题数 | 召回率 | 辅助召回率 | 可见准确率 | 答案状态 | 答案完整一致 | 非法候选 |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for evaluation in evaluations:
@@ -76,7 +83,7 @@ def _render_report(
             f"| {evaluation.sample_name} | {evaluation.source_format} | {item.expected_count} | "
             f"{_percent(item.question_recall)} | {_percent(item.assisted_question_recall)} | "
             f"{_percent(item.visible_precision)} | {_percent(item.answer_state_accuracy)} | "
-            f"{_percent(item.answer_pair_accuracy)} | {evaluation.invalid_candidate_count} |"
+            f"{_answer_completeness(item)} | {evaluation.invalid_candidate_count} |"
         )
     if overall.missed_prompts:
         lines.extend(["", "## 漏题", ""])
@@ -85,7 +92,7 @@ def _render_report(
         lines.extend(["", "## 误抽取", ""])
         lines.extend(f"- {prompt}" for prompt in overall.false_positive_prompts)
     if overall.wrong_answer_prompts:
-        lines.extend(["", "## 答案错配或内容范围错误", ""])
+        lines.extend(["", "## 答案内容或范围不一致（需人工区分错配、漏段与格式差异）", ""])
         lines.extend(f"- {prompt}" for prompt in overall.wrong_answer_prompts)
     if overall.prompt_variations:
         lines.extend(["", "## 轻微 OCR 字符差异", ""])
@@ -96,7 +103,8 @@ def _render_report(
             "## 解释边界",
             "",
             "该报告使用逐字来源约束和严格一对一匹配；只对长度不少于 8 个字符且字符相似度达到 97% 的 OCR 微小差异计为同一道题，并单独列出差异。",
-            "当前样本验证的是解析完成后的题答抽取；图片 OCR、PDF 和 DOCX 的解析质量需要另行使用真实文件验收。",
+            "答案完整一致率对已匹配且原文带答案的题目做严格文本比较；不一致可能是漏段、漏小标题、格式差异或串题，不能直接等同于答案错配率。无带答案样本时该项不适用。",
+            "普通样本只验证解析后题答抽取；显式启用的图片样本包含真实 OCR。PDF/DOCX 解析、生产分批与持久化仍需另行验收，不能由这些文字样本代替。",
             "",
         ]
     )

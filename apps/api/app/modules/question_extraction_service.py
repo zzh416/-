@@ -39,6 +39,33 @@ class LoadedChunk:
     content: str
 
 
+def _starts_explicit_question(content: str) -> bool:
+    """Use only a clear opening line as a batch boundary, never an inner answer question."""
+    if not content.strip():
+        return False
+    line = content.lstrip().splitlines()[0].replace("**", "").strip()
+    line = re.sub(r"^#{1,6}\s*", "", line)
+    line = re.sub(r"^[-+*>▶►▸•·⭐]+\s*", "", line)
+    line = re.sub(r"^\d+(?:\.\d+)*[.)、]\s*", "", line)
+    line = re.sub(r"^面试官\s*[:：]\s*", "", line)
+    if re.match(
+        r"^(?:答案|参考答案|答[:：]|解析|例如|比如|示例|步骤|首先|其次|然后|判断|检查|将|把)",
+        line,
+    ):
+        return False
+    line = re.split(r"(?:参考答案|答案|答)\s*[:：]", line, maxsplit=1)[0].strip()
+    if not line or len(line) > 240:
+        return False
+    request = re.match(
+        r"^(?:请)?(?:先)?(?:介绍(?:一下)?|解释(?:一下)?|说说|说一下|谈谈|讲讲|聊聊|描述|简述|分析|比较)",
+        line,
+    )
+    return bool(request) or bool(
+        line.endswith(("?", "？"))
+        and re.search(r"为什么|为何|怎么|如何|什么|哪些|哪个|是否|能否|几种|区别|作用|原理|流程|优势|吗|呢", line)
+    )
+
+
 def _build_extraction_batches(
     chunks: list[LoadedChunk],
     *,
@@ -52,6 +79,7 @@ def _build_extraction_batches(
         raise ValueError("题目抽取批次配置无效")
     batches: list[list[LoadedChunk]] = []
     start = 0
+    covered_until = 0
     while start < len(chunks):
         end = start
         char_count = 0
@@ -61,7 +89,19 @@ def _build_extraction_batches(
                 break
             char_count += next_size
             end += 1
+        if end < len(chunks) and not _starts_explicit_question(chunks[end].content):
+            # Keep the last question with its answer in the next batch when possible.
+            # Never backtrack into overlap-only material or increase the hard limits.
+            for boundary in range(end - 1, max(start, covered_until), -1):
+                if _starts_explicit_question(chunks[boundary].content):
+                    end = boundary
+                    break
+        if end <= covered_until:
+            # A large next block may leave room only for already-sent overlap.
+            start = covered_until
+            continue
         batches.append(chunks[start:end])
+        covered_until = end
         if end >= len(chunks):
             break
         start = max(start + 1, end - min(overlap_blocks, end - start - 1))
@@ -115,6 +155,12 @@ def _validated_span(
         resolved_start,
         resolved_start + len(span.quote),
     )
+
+
+def is_answer_label_only(quote: str) -> bool:
+    """A standalone answer heading carries no answer; preserve all other prose."""
+    normalized = re.sub(r"\s+", "", quote).replace("**", "").replace("__", "")
+    return re.fullmatch(r"(?:参考答案|答案|答)[:：]?", normalized) is not None
 
 
 def question_prompt_from_quote(quote: str, *, answer_offset: int | None = None) -> str:
@@ -335,9 +381,13 @@ def process_question_extraction_run(
                     validation_failures += 1
                     continue
                 source_key = (source_chunk.id, question_start, question_end)
-                answer_texts = [item[1] for item in validated_answers if item[1]]
-                answer_text = "\n\n".join(answer_texts) if answer_texts else None
-                first_answer = validated_answers[0] if validated_answers else None
+                answer_sources = [
+                    (item, span)
+                    for item, span in zip(validated_answers, pair.answer_spans, strict=True)
+                    if item[1] and not is_answer_label_only(item[1])
+                ]
+                answer_text = "\n\n".join(item[1] for item, _ in answer_sources) or None
+                first_answer = answer_sources[0][0] if answer_sources else None
                 answer_spans = [
                     {
                         "sourceChunkId": str(item[0].id),
@@ -346,7 +396,7 @@ def process_question_extraction_run(
                         "end": item[3],
                         "quote": span.quote,
                     }
-                    for item, span in zip(validated_answers, pair.answer_spans, strict=True)
+                    for item, span in answer_sources
                 ]
                 existing = created_by_range.get(source_key)
                 if existing is not None:
