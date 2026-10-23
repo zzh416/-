@@ -44,6 +44,7 @@ class ExtractionQualityReport:
     answer_state_correct_count: int
     answered_match_count: int
     correctly_paired_count: int
+    strictly_paired_count: int
     prompt_variation_count: int
     question_recall: float
     assisted_question_recall: float
@@ -51,9 +52,11 @@ class ExtractionQualityReport:
     visible_precision: float
     answer_state_accuracy: float
     answer_pair_accuracy: float
+    strict_answer_pair_accuracy: float
     missed_prompts: tuple[str, ...]
     false_positive_prompts: tuple[str, ...]
     wrong_answer_prompts: tuple[str, ...]
+    formatting_variation_prompts: tuple[str, ...]
     prompt_variations: tuple[str, ...]
     passed: bool
 
@@ -77,6 +80,58 @@ def _normalize_answer(value: str | None) -> str | None:
         return None
     normalized = unicodedata.normalize("NFKC", value)
     normalized = re.sub(r"\s+", " ", normalized).strip().casefold()
+    return normalized or None
+
+
+_ANSWER_LABEL_LINE = re.compile(
+    r"^(?:\*{1,2}|_{1,2})?\s*(?:答|答案|参考答案)\s*[：:]?\s*(?:\*{1,2}|_{1,2})?$",
+    re.IGNORECASE,
+)
+_ANSWER_LABEL_PREFIX = re.compile(r"^(?:答|答案|参考答案)\s*[：:]\s*", re.IGNORECASE)
+_PAIRED_EMPHASIS = re.compile(r"(\*\*|__)(.+?)\1")
+_DECORATION_DOTS = re.compile(r"\.{8,}")
+_HEADING_PREFIX = re.compile(r"^#{1,6}\s+")
+_LIST_PREFIX = re.compile(
+    r"^(?:[-+*]\s+|[•·▶►▸\uf0b7]\s*|(?:\d+(?:\.\d+)*[.、)]|[（(]\d+[）)]|[一二三四五六七八九十]+[、.])\s*)"
+)
+_INLINE_ORDERED_LIST_PREFIX = re.compile(
+    r"(?<=[；;])\s*\d+(?:\.\d+)*[.、)]\s*"
+)
+_TABLE_SEPARATOR_CELL = re.compile(r"^:?-{3,}:?$")
+
+
+def _is_markdown_table_separator(line: str) -> bool:
+    cells = [cell.strip() for cell in line.strip("|").split("|")]
+    return bool(cells) and all(_TABLE_SEPARATOR_CELL.fullmatch(cell) for cell in cells)
+
+
+def _normalize_answer_content(value: str | None) -> str | None:
+    """Compare source content while ignoring only common document layout syntax.
+
+    Characters that carry meaning, including punctuation, numbers and operators, remain
+    in order. The normalization only removes standalone answer labels, Markdown heading
+    prefixes, table separators/cell borders, list markers and whitespace introduced by
+    PDF/DOCX layout conversion.
+    """
+    if value is None:
+        return None
+    lines: list[str] = []
+    for raw_line in unicodedata.normalize("NFKC", value).splitlines():
+        line = raw_line.strip()
+        if not line or _ANSWER_LABEL_LINE.fullmatch(line):
+            continue
+        line = _PAIRED_EMPHASIS.sub(r"\2", line)
+        line = _ANSWER_LABEL_PREFIX.sub("", line)
+        line = _HEADING_PREFIX.sub("", line)
+        if _is_markdown_table_separator(line):
+            continue
+        if line.startswith("|") or line.endswith("|") or line.count("|") >= 2:
+            line = "".join(cell.strip() for cell in line.strip("|").split("|"))
+        line = _LIST_PREFIX.sub("", line)
+        line = _INLINE_ORDERED_LIST_PREFIX.sub("", line)
+        line = _DECORATION_DOTS.sub("", line)
+        lines.append(line)
+    normalized = re.sub(r"\s+", "", "".join(lines)).casefold()
     return normalized or None
 
 
@@ -169,14 +224,27 @@ def evaluate_extraction_quality(
         for expected_item, observed_item in matched
         if expected_item.answer is not None
     ]
-    correctly_paired = sum(
+    strictly_paired = sum(
         _normalize_answer(expected_item.answer) == _normalize_answer(observed_item.answer)
+        for expected_item, observed_item in answered_matches
+    )
+    correctly_paired = sum(
+        _normalize_answer_content(expected_item.answer)
+        == _normalize_answer_content(observed_item.answer)
         for expected_item, observed_item in answered_matches
     )
     wrong_answer_prompts = tuple(
         expected_item.prompt
         for expected_item, observed_item in answered_matches
-        if _normalize_answer(expected_item.answer) != _normalize_answer(observed_item.answer)
+        if _normalize_answer_content(expected_item.answer)
+        != _normalize_answer_content(observed_item.answer)
+    )
+    formatting_variation_prompts = tuple(
+        expected_item.prompt
+        for expected_item, observed_item in answered_matches
+        if _normalize_answer_content(expected_item.answer)
+        == _normalize_answer_content(observed_item.answer)
+        and _normalize_answer(expected_item.answer) != _normalize_answer(observed_item.answer)
     )
 
     question_recall = _ratio(len(matched), len(expected))
@@ -188,6 +256,7 @@ def evaluate_extraction_quality(
     visible_precision = _ratio(visible_matched_count, visible_observed_count)
     answer_state_accuracy = _ratio(answer_state_correct, len(matched))
     answer_pair_accuracy = _ratio(correctly_paired, len(answered_matches))
+    strict_answer_pair_accuracy = _ratio(strictly_paired, len(answered_matches))
     passed = (
         question_recall >= active_thresholds.question_recall
         and assisted_question_recall >= active_thresholds.assisted_recall
@@ -209,6 +278,7 @@ def evaluate_extraction_quality(
         answer_state_correct_count=answer_state_correct,
         answered_match_count=len(answered_matches),
         correctly_paired_count=correctly_paired,
+        strictly_paired_count=strictly_paired,
         prompt_variation_count=len(prompt_variations),
         question_recall=question_recall,
         assisted_question_recall=assisted_question_recall,
@@ -216,9 +286,11 @@ def evaluate_extraction_quality(
         visible_precision=visible_precision,
         answer_state_accuracy=answer_state_accuracy,
         answer_pair_accuracy=answer_pair_accuracy,
+        strict_answer_pair_accuracy=strict_answer_pair_accuracy,
         missed_prompts=tuple(item.prompt for item in missed),
         false_positive_prompts=tuple(item.prompt for item in false_positives),
         wrong_answer_prompts=wrong_answer_prompts,
+        formatting_variation_prompts=formatting_variation_prompts,
         prompt_variations=tuple(prompt_variations),
         passed=passed,
     )
@@ -246,6 +318,7 @@ def aggregate_quality_reports(
     )
     answered_match_count = sum(item.answered_match_count for item in reports)
     correctly_paired_count = sum(item.correctly_paired_count for item in reports)
+    strictly_paired_count = sum(item.strictly_paired_count for item in reports)
     prompt_variation_count = sum(item.prompt_variation_count for item in reports)
     question_recall = _ratio(matched_count, expected_count)
     assisted_question_recall = _ratio(
@@ -256,6 +329,7 @@ def aggregate_quality_reports(
     visible_precision = _ratio(visible_matched_count, visible_observed_count)
     answer_state_accuracy = _ratio(answer_state_correct_count, matched_count)
     answer_pair_accuracy = _ratio(correctly_paired_count, answered_match_count)
+    strict_answer_pair_accuracy = _ratio(strictly_paired_count, answered_match_count)
     passed = (
         question_recall >= active_thresholds.question_recall
         and assisted_question_recall >= active_thresholds.assisted_recall
@@ -276,6 +350,7 @@ def aggregate_quality_reports(
         answer_state_correct_count=answer_state_correct_count,
         answered_match_count=answered_match_count,
         correctly_paired_count=correctly_paired_count,
+        strictly_paired_count=strictly_paired_count,
         prompt_variation_count=prompt_variation_count,
         question_recall=question_recall,
         assisted_question_recall=assisted_question_recall,
@@ -283,6 +358,7 @@ def aggregate_quality_reports(
         visible_precision=visible_precision,
         answer_state_accuracy=answer_state_accuracy,
         answer_pair_accuracy=answer_pair_accuracy,
+        strict_answer_pair_accuracy=strict_answer_pair_accuracy,
         missed_prompts=tuple(
             prompt for item in reports for prompt in item.missed_prompts
         ),
@@ -291,6 +367,11 @@ def aggregate_quality_reports(
         ),
         wrong_answer_prompts=tuple(
             prompt for item in reports for prompt in item.wrong_answer_prompts
+        ),
+        formatting_variation_prompts=tuple(
+            prompt
+            for item in reports
+            for prompt in item.formatting_variation_prompts
         ),
         prompt_variations=tuple(
             variation for item in reports for variation in item.prompt_variations

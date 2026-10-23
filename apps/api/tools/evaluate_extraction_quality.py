@@ -40,6 +40,12 @@ def _answer_completeness(report: ExtractionQualityReport) -> str:
     return _percent(report.answer_pair_accuracy)
 
 
+def _strict_answer_completeness(report: ExtractionQualityReport) -> str:
+    if not report.answered_match_count:
+        return "不适用（无带答案匹配题）"
+    return _percent(report.strict_answer_pair_accuracy)
+
+
 def _render_report(
     evaluations: list[SampleEvaluation],
     thresholds: QualityThresholds,
@@ -64,7 +70,8 @@ def _render_report(
         f"| 疑似漏题辅助召回率 | {_percent(overall.assisted_question_recall)} | {_percent(thresholds.assisted_recall)} |",
         f"| 用户可见题目准确率 | {_percent(overall.visible_precision)} | {_percent(thresholds.visible_precision)} |",
         f"| 有/无答案状态准确率 | {_percent(overall.answer_state_accuracy)} | {_percent(thresholds.answer_state_accuracy)} |",
-        f"| 原文答案完整一致率（严格） | {_answer_completeness(overall)} | {_percent(thresholds.answer_pair_accuracy)} |",
+        f"| 答案内容完整一致率（排版归一） | {_answer_completeness(overall)} | {_percent(thresholds.answer_pair_accuracy)} |",
+        f"| 答案基础规范化一致率（参考） | {_strict_answer_completeness(overall)} | 不参与门禁 |",
         "",
         (
             f"共 {overall.expected_count} 道预期题，模型产生 {overall.observed_count} 条有效候选；"
@@ -76,7 +83,7 @@ def _render_report(
         "",
         "## 分样本结果",
         "",
-        "| 样本 | 来源格式 | 预期题数 | 召回率 | 辅助召回率 | 可见准确率 | 答案状态 | 答案完整一致 | 非法候选 |",
+        "| 样本 | 来源格式 | 预期题数 | 召回率 | 辅助召回率 | 可见准确率 | 答案状态 | 答案内容完整 | 非法候选 |",
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for evaluation in evaluations:
@@ -94,8 +101,11 @@ def _render_report(
         lines.extend(["", "## 误抽取", ""])
         lines.extend(f"- {prompt}" for prompt in overall.false_positive_prompts)
     if overall.wrong_answer_prompts:
-        lines.extend(["", "## 答案内容或范围不一致（需人工区分错配、漏段与格式差异）", ""])
+        lines.extend(["", "## 答案内容或范围不一致（需人工区分错配、漏段与串题）", ""])
         lines.extend(f"- {prompt}" for prompt in overall.wrong_answer_prompts)
+    if overall.formatting_variation_prompts:
+        lines.extend(["", "## 仅排版不同的答案", ""])
+        lines.extend(f"- {prompt}" for prompt in overall.formatting_variation_prompts)
     if overall.prompt_variations:
         lines.extend(["", "## 轻微 OCR 字符差异", ""])
         lines.extend(f"- {variation}" for variation in overall.prompt_variations)
@@ -105,7 +115,8 @@ def _render_report(
             "## 解释边界",
             "",
             "该报告使用逐字来源约束和严格一对一匹配；只对长度不少于 8 个字符且字符相似度达到 97% 的 OCR 微小差异计为同一道题，并单独列出差异。",
-            "答案完整一致率对已匹配且原文带答案的题目做严格文本比较；不一致可能是漏段、漏小标题、格式差异或串题，不能直接等同于答案错配率。无带答案样本时该项不适用。",
+            "答案内容完整一致率只忽略独立答案标签、Markdown 标题前缀、表格边界/分隔行、列表编号/项目符号及空白；不会忽略正文字符、数字、运算符或内容顺序。该指标参与门禁。",
+            "答案基础规范化一致率沿用旧口径，仅统一 Unicode、连续空白和大小写，用于显示跨格式排版差异，不参与门禁。无带答案样本时两项均不适用。",
             "普通样本只验证解析后题答抽取；显式启用的图片样本包含真实 OCR。PDF/DOCX 解析、生产分批与持久化仍需另行验收，不能由这些文字样本代替。",
             "",
         ]
