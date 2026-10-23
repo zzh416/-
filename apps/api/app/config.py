@@ -49,8 +49,9 @@ class Settings(BaseSettings):
     renderer_url: str = "http://renderer:9100"
     renderer_timeout_seconds: float = 30.0
 
-    # 文字模型显式选择；图片 OCR 始终使用独立的 GLM 配置。
+    # 文字模型与 OCR 分别显式选择，不自动切换服务商。
     text_model_provider: Literal["glm", "deepseek"] = "glm"
+    ocr_provider: Literal["glm", "deepseek"] = "glm"
     glm_api_key: str = Field(default="", repr=False)
     glm_base_url: str = "https://open.bigmodel.cn/api/paas/v4"
     glm_text_model: str = "glm-4-plus"
@@ -59,6 +60,8 @@ class Settings(BaseSettings):
     deepseek_api_key: str = Field(default="", repr=False)
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_text_model: str = "deepseek-chat"
+    deepseek_ocr_model: str = "deepseek-flash"
+    deepseek_ocr_max_output_tokens: int = Field(default=8_192, ge=1, le=65_536)
 
     # Embedding —— SiliconFlow BGE-M3
     embedding_api_key: str = Field(default="", repr=False)

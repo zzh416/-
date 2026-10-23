@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
 
-from app.adapters.glm_ocr import OCRNotConfigured, OCRServiceError, extract_with_glm_ocr
+from app.adapters.glm_ocr import OCRNotConfigured, OCRServiceError
+from app.adapters.ocr_provider import extract_with_configured_ocr
 from app.adapters.glm_text import (
     TextModelError,
     TextModelNotConfigured,
@@ -155,12 +156,7 @@ def main() -> int:
             if path.parent.resolve() not in image_path.parents:
                 print(f"图片样本路径越界：{image_manifest.file}", file=sys.stderr)
                 return 2
-            recognized = extract_with_glm_ocr(
-                image_path.read_bytes(),
-                api_key=settings.glm_api_key,
-                base_url=settings.glm_base_url,
-                model=settings.glm_ocr_model,
-            )
+            recognized = extract_with_configured_ocr(image_path.read_bytes())
             sample = image_quality_sample_from_markdown(
                 image_manifest,
                 recognized.markdown,

@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.adapters import text_provider
+from app.adapters import ocr_provider, text_provider
 from app.adapters.glm_ocr import OCRResult
 from app.config import Settings
 from app.modules import ingestion_service
@@ -11,6 +11,7 @@ from app.modules import ingestion_service
 def _settings(**overrides) -> Settings:
     values = {
         "text_model_provider": "glm",
+        "ocr_provider": "glm",
         "glm_api_key": "glm-test-secret",
         "glm_base_url": "https://glm.example.test/v4",
         "glm_text_model": "glm-test-text",
@@ -61,6 +62,7 @@ def test_selected_provider_does_not_silently_fall_back_when_key_is_missing(monke
 def test_deepseek_selection_leaves_ocr_on_glm(monkeypatch) -> None:
     configured = _settings(text_model_provider="deepseek")
     monkeypatch.setattr(ingestion_service, "settings", configured)
+    monkeypatch.setattr(ocr_provider, "settings", configured)
 
     def fake_ocr(content, **kwargs):
         assert content == b"image-data"

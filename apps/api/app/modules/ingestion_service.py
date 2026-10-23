@@ -15,8 +15,8 @@ from app.adapters.glm_ocr import (
     OCRNotConfigured,
     OCRResult,
     OCRServiceError,
-    extract_with_glm_ocr,
 )
+from app.adapters.ocr_provider import extract_with_configured_ocr
 from app.adapters.browser_renderer import (
     BrowserRenderError,
     RenderedPage,
@@ -77,18 +77,13 @@ class _Processed:
     unit_failures: list[dict] = field(default_factory=list)
 
 
-def _ocr(content: bytes, extractor: OCRExtractor) -> OCRResult:
-    return extractor(
-        content,
-        api_key=settings.glm_api_key,
-        base_url=settings.glm_base_url,
-        model=settings.glm_ocr_model,
-    )
+def _ocr(content: bytes, extractor: OCRExtractor | None) -> OCRResult:
+    return extract_with_configured_ocr(content, extractor=extractor)
 
 
 def _process_structured_result(
     parsed: ParseResult,
-    extractor: OCRExtractor,
+    extractor: OCRExtractor | None,
 ) -> _Processed:
     blocks = list(parsed.blocks)
     if not parsed.ocr_units:
@@ -151,7 +146,7 @@ def _process_structured_result(
 def _extract(
     asset: _AssetSnapshot,
     *,
-    ocr_extractor: OCRExtractor,
+    ocr_extractor: OCRExtractor | None,
     web_fetcher: WebFetcher,
     browser_renderer: BrowserRenderer,
     stage_reporter: StageReporter,
@@ -265,7 +260,7 @@ def _set_stage(job_id: UUID, stage: str) -> None:
 def process_ingestion_job(
     job_id: UUID,
     *,
-    ocr_extractor: OCRExtractor = extract_with_glm_ocr,
+    ocr_extractor: OCRExtractor | None = None,
     web_fetcher: WebFetcher = fetch_public_document,
     browser_renderer: BrowserRenderer = render_public_page,
 ) -> None:
@@ -309,11 +304,12 @@ def process_ingestion_job(
         if len(processed.content.encode("utf-8")) > settings.max_extracted_text_bytes:
             raise IngestionParseError("EXTRACTED_TEXT_TOO_LARGE", "提取文字超过 5 MiB 上限")
     except OCRNotConfigured:
+        key_name = "DEEPSEEK_API_KEY" if settings.ocr_provider == "deepseek" else "GLM_API_KEY"
         _mark_failure(
             job_id,
             "WAITING_FOR_CONFIGURATION",
             "OCR_NOT_CONFIGURED",
-            "该资料需要 OCR；请在 infra/.env 配置 GLM_API_KEY 后重试",
+            f"该资料需要 OCR；请在 infra/.env 配置 {key_name} 后重试",
         )
         return
     except OCRServiceError as exc:

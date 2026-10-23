@@ -3,12 +3,14 @@ from io import BytesIO
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
+import pytest
 from docx import Document
 from fastapi.testclient import TestClient
 from pypdf import PdfReader, PdfWriter
 
 from app.adapters.glm_ocr import OCRNotConfigured, OCRResult
 from app.adapters.browser_renderer import RenderedPage
+from app.config import settings
 from app.main import app
 from app.modules.safe_web import FetchedDocument, SafeWebError
 from app.modules.ingestion_service import process_ingestion_job
@@ -99,7 +101,9 @@ def test_worker_parses_docx_and_persists_version_and_chunks() -> None:
         client.delete(f"/api/v1/collections/{collection_id}")
 
 
-def test_worker_persists_docx_image_ocr_in_document_order_with_locator() -> None:
+@pytest.mark.parametrize("provider", ["glm", "deepseek"])
+def test_worker_persists_docx_image_ocr_in_document_order_with_locator(monkeypatch, provider) -> None:
+    monkeypatch.setattr(settings, "ocr_provider", provider)
     collection_id = _create_collection()
     asset_id: str | None = None
     try:
@@ -116,14 +120,17 @@ def test_worker_persists_docx_image_ocr_in_document_order_with_locator() -> None
             )
         asset_id = uploaded.json()["id"]
 
-        process_ingestion_job(
-            UUID(uploaded.json()["job"]["id"]),
-            ocr_extractor=lambda *args, **kwargs: OCRResult(
+        with patch(
+            f"app.adapters.ocr_provider.extract_with_{provider}_ocr",
+            return_value=OCRResult(
                 markdown="图片中的问题",
                 page_count=1,
                 provider_task_id="docx-image",
             ),
-        )
+        ) as recognize:
+            process_ingestion_job(UUID(uploaded.json()["job"]["id"]))
+        assert recognize.call_count == 1
+        assert recognize.call_args.kwargs["model"] == getattr(settings, f"{provider}_ocr_model")
 
         detail = client.get(f"/api/v1/assets/{asset_id}").json()
         assert detail["content"].index("图片前的问题") < detail["content"].index("图片中的问题")
@@ -176,7 +183,9 @@ def test_worker_ocr_only_replaces_missing_pdf_page_and_keeps_native_page() -> No
         client.delete(f"/api/v1/collections/{collection_id}")
 
 
-def test_worker_uses_ocr_for_image_and_waits_when_key_is_missing() -> None:
+@pytest.mark.parametrize("provider", ["glm", "deepseek"])
+def test_worker_uses_ocr_for_image_and_waits_when_key_is_missing(monkeypatch, provider) -> None:
+    monkeypatch.setattr(settings, "ocr_provider", provider)
     collection_id = _create_collection()
     asset_ids: list[str] = []
     image = b"\x89PNG\r\n\x1a\nimage-data"
@@ -211,6 +220,7 @@ def test_worker_uses_ocr_for_image_and_waits_when_key_is_missing() -> None:
         waiting = client.get(f"/api/v1/assets/{asset_ids[1]}").json()
         assert waiting["status"] == "WAITING_FOR_CONFIGURATION"
         assert waiting["job"]["errorCode"] == "OCR_NOT_CONFIGURED"
+        assert f"{provider.upper()}_API_KEY" in waiting["job"]["errorMessage"]
         assert waiting["currentVersion"] == 0
 
         with patch("app.workers.celery_app.celery_app.send_task") as send_task:

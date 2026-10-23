@@ -14,6 +14,10 @@ RUN apt-get update \
     && mkdir -p /data \
     && chown appuser:appuser /app /data
 
+RUN apt-get update -o Acquire::Retries=3 \
+    && apt-get install -y --no-install-recommends -o Acquire::Retries=3 poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt requirements.lock ./
 RUN pip install -r requirements.lock
 
