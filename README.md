@@ -11,10 +11,10 @@
 - 编辑题目和答案，保存或删除私人备注，按题干与答案关键词检索。
 - 问题、答案、代码使用不同字体；Markdown 不执行原始 HTML，也不自动加载远程图片。
 - 本机固定用户隔离、创建请求幂等、并发编辑版本冲突检查和刷新后持久化。
-- 上传 `.png`、`.jpg`、`.jpeg`、`.pdf`、`.docx`、`.doc`；这些二进制文件上限 25 MiB，PDF 最多 100 页。
+- 上传 `.png`、`.jpg`、`.jpeg` 图片，上限 10 MiB；上传 `.pdf`、`.docx`、`.doc` 文档，上限 25 MiB，PDF 最多 100 页。
 - 通过同一个链接入口导入公开网页：先提取静态正文，遇到 JavaScript 空壳时自动使用隔离的 Chromium 渲染，再保存来源 URL、抓取时间与 HTML 快照。
 - Celery Worker 后台解析，界面自动刷新等待、处理、部分完成、等待配置和失败状态，并支持最多三次手动重试。
-- 图片、扫描 PDF 和 DOCX 内嵌图片通过智谱 `glm-ocr` 识别；未配置 Key 时保留资料并明确提示，不会伪装为成功。
+- 图片、扫描 PDF 和 DOCX 内嵌图片可通过智谱 `glm-ocr` 或 DeepSeek `deepseek-flash` 识别，由 `OCR_PROVIDER` 独立选择；未配置 Key 时保留资料并明确提示。
 - PDF 文字层、DOCX 段落/标题/表格及旧 `.doc` 转换可在本地完成；旧 `.doc` 由容器内无界面的 LibreOffice 转换。
 - 网页导入拒绝本机、私网、保留地址和非标准端口；静态请求与浏览器请求都会检查目标地址，并限制请求数、响应大小和超时。
 - 链接导入只处理匿名可访问的单个页面；需要登录、验证码或当前章节没有体现在 URL 中时，界面会提示改用粘贴文字或上传文件。
@@ -33,9 +33,9 @@ P3 尚未全部完成。个性化清单不会改写基础题库，用户可以�
 - 前端：React、TypeScript、Vite、Ant Design、TanStack Query
 - 后端：FastAPI、SQLAlchemy、Alembic
 - 数据：PostgreSQL（pgvector 镜像为后续阶段预留）
-- 文档解析：pypdf、python-docx、Trafilatura、LibreOffice
+- 文档解析：pypdf、python-docx、Trafilatura、LibreOffice、Poppler（扫描 PDF 单页转图）
 - 动态网页：Playwright、Chromium（独立无密钥容器）
-- 图片 OCR：智谱 `glm-ocr`
+- 图片 OCR：智谱 `glm-ocr` 或 DeepSeek `deepseek-flash`
 - 后台任务：Celery、Redis
 
 ## 启动
@@ -47,7 +47,11 @@ cp infra/.env.example infra/.env
 docker compose -f infra/docker-compose.yml up -d --build
 ```
 
-纯文字、文本型 PDF/Word 和网页正文的基础解析不需要模型 API Key。AI 自动整理题目和简历画像提取通过 `infra/.env` 的 `TEXT_MODEL_PROVIDER=glm|deepseek` 选择文字模型，并使用对应的 `GLM_API_KEY` 或 `DEEPSEEK_API_KEY`；默认 GLM，不自动切换服务商。图片、扫描 PDF、Word 内嵌图片 OCR 仍独立使用 `GLM_API_KEY`。修改配置后执行 `docker compose -f infra/docker-compose.yml up -d --force-recreate api worker`。API 启动时先执行 `alembic upgrade head`。访问地址：
+纯文字、文本型 PDF/Word 和网页正文的基础解析不需要模型 API Key。AI 自动整理题目和简历画像提取通过 `infra/.env` 的 `TEXT_MODEL_PROVIDER=glm|deepseek` 选择文字模型，图片识别通过 `OCR_PROVIDER=glm|deepseek` 独立选择；二者都使用所选服务商的 `GLM_API_KEY` 或 `DEEPSEEK_API_KEY`，默认 GLM，失败时不会自动切换服务商。
+
+文字和图片都使用 DeepSeek 时，配置 `TEXT_MODEL_PROVIDER=deepseek`、`OCR_PROVIDER=deepseek`、`DEEPSEEK_API_KEY`，以及 `DEEPSEEK_OCR_MODEL=deepseek-flash`。图片转录默认输出上限为 `DEEPSEEK_OCR_MAX_OUTPUT_TOKENS=8192`；输出被截断会提示失败，不会保存为完整结果。使用 DeepSeek 时，扫描或含图 PDF 页面先在本地转为 PNG，再提交整页识别；不含图片且文字层可用的 PDF 页面、Word 原生正文仍直接在本地提取。接口依据见 [DeepSeek 官方视觉文档](https://api-docs.deepseek.com/guides/vision/)。
+
+从旧版本升级到本次图片识别功能时，需要安装新增的 Poppler 容器依赖，执行 `docker compose -f infra/docker-compose.yml up --build -d api worker`。以后仅修改 `.env` 时，执行 `docker compose -f infra/docker-compose.yml up -d --force-recreate api worker` 即可。API 启动时先执行 `alembic upgrade head`。访问地址：
 
 - 前端：http://127.0.0.1:5173
 - API 文档：http://127.0.0.1:9000/api/docs
