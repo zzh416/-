@@ -6,6 +6,7 @@ import json
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from app.adapters.glm_errors import RESOURCE_EXHAUSTED_MESSAGE, provider_error_code
 from app.adapters.glm_text import TextModelError, TextModelNotConfigured
 
 
@@ -99,6 +100,10 @@ def extract_profile_with_glm(
                 "PROFILE_MODEL_AUTH_FAILED", "GLM API Key 无效或无权限", retryable=False
             )
         if response_status == 429:
+            if provider_error_code(response_content) == "1113":
+                raise TextModelError(
+                    "PROFILE_MODEL_RESOURCE_EXHAUSTED", RESOURCE_EXHAUSTED_MESSAGE, retryable=False
+                )
             raise TextModelError(
                 "PROFILE_MODEL_RATE_LIMITED", "画像提取服务限流，请稍后重试", retryable=True
             )

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from app.adapters.glm_errors import RESOURCE_EXHAUSTED_MESSAGE, provider_error_code
+
 
 class TextModelNotConfigured(RuntimeError):
     """未配置文本模型密钥。"""
@@ -59,6 +61,8 @@ SYSTEM_PROMPT = """你是面试资料结构化提取器。只抽取输入块中�
 "answer_spans":[{"block_ordinal":整数,"quote":"原文"}],"confidence":0到1}。
 question.quote 必须逐字复制问题所在块的原文片段。
 答案可以跨多个块；answer_spans 按阅读顺序列出每段答案的块序号和逐字原文。
+完整保留答案的列表、表格及“特点”“原因”“问题”“优化方法”等内部小标题，不得概括或只取前几项。
+单独的“答：”“答案：”“参考答案：”只是标签，不是答案；若当前块中没有答案正文则返回空数组。
 如果资料只有问题或无法确定答案归属，answer_spans 必须是空数组。
 “什么是…”等问句、“先介绍一下…”等面试指令、编号问句以及以知识点命名且正文紧随其后的标题都可作为问题。
 不得补写、改写、解释或根据常识生成答案，也不得把下一道题算进上一题答案。"""
@@ -120,6 +124,10 @@ def extract_questions_with_glm(
         if response_status in {401, 403}:
             raise TextModelError("TEXT_MODEL_AUTH_FAILED", "GLM API Key 无效或无权限", retryable=False)
         if response_status == 429:
+            if provider_error_code(response_content) == "1113":
+                raise TextModelError(
+                    "TEXT_MODEL_RESOURCE_EXHAUSTED", RESOURCE_EXHAUSTED_MESSAGE, retryable=False
+                )
             raise TextModelError("TEXT_MODEL_RATE_LIMITED", "题目抽取服务限流，请稍后重试", retryable=True)
         if response_status >= 500:
             raise TextModelError(

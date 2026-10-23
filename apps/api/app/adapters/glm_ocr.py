@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from app.adapters.glm_errors import RESOURCE_EXHAUSTED_MESSAGE, provider_error_code
+
 
 class OCRNotConfigured(RuntimeError):
     """未配置 OCR 服务密钥。"""
@@ -41,20 +43,6 @@ def _file_data_url(content: bytes) -> str:
         )
     encoded = base64.b64encode(content).decode("ascii")
     return f"data:{media_type};base64,{encoded}"
-
-
-def _provider_error_code(response_content: bytes | bytearray) -> str | None:
-    try:
-        payload = json.loads(response_content)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
-    if not isinstance(payload, dict):
-        return None
-    error = payload.get("error")
-    if not isinstance(error, dict):
-        return None
-    code = error.get("code")
-    return str(code) if isinstance(code, (str, int)) else None
 
 
 def extract_with_glm_ocr(
@@ -106,6 +94,10 @@ def extract_with_glm_ocr(
         if status in {401, 403}:
             raise OCRServiceError("OCR_AUTH_FAILED", "OCR API Key 无效或无权限", retryable=False)
         if status == 429:
+            if provider_error_code(response_content) == "1113":
+                raise OCRServiceError(
+                    "OCR_RESOURCE_EXHAUSTED", RESOURCE_EXHAUSTED_MESSAGE, retryable=False
+                )
             raise OCRServiceError("OCR_RATE_LIMITED", "OCR 服务限流，请稍后重试", retryable=True)
         if status >= 500:
             raise OCRServiceError(
@@ -114,7 +106,7 @@ def extract_with_glm_ocr(
                 retryable=True,
             )
         if status >= 400:
-            if _provider_error_code(response_content) == "1214":
+            if provider_error_code(response_content) == "1214":
                 raise OCRServiceError(
                     "OCR_FILE_REJECTED",
                     "OCR 仅支持 PDF、JPG、PNG；图片不超过 10 MB，PDF 不超过 50 MB 且最多 100 页",
