@@ -2,9 +2,9 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.db import get_db
@@ -20,12 +20,14 @@ from app.models import (
     TextChunk,
 )
 from app.modules.question_history import record_question_change
+from app.modules.question_identity import question_similarity
 from app.modules.question_miss_detection import (
     CoveredQuestionRange,
     MissDetectionBlock,
     find_suspected_questions,
 )
 from app.schemas.extractions import (
+    DuplicateQuestionCandidateView,
     ExtractionAnswerView,
     ExtractionReviewBulkResult,
     ExtractionReviewBulkUpdate,
@@ -45,6 +47,7 @@ _REVIEW_ACTION_STATUS = {
     "REJECT": "REJECTED",
     "RESET": "PENDING",
 }
+_DUPLICATE_REVIEW_THRESHOLD = 0.8
 
 
 def _owned_run(db: Session, run_id: UUID, owner_id: UUID) -> QuestionExtractionRun:
@@ -82,6 +85,7 @@ def _review_item(
     question: Question,
     answer: Answer | None,
     source_chunk: TextChunk | None,
+    duplicate_candidates: list[DuplicateQuestionCandidateView] | None = None,
 ) -> ExtractionReviewItemView:
     return ExtractionReviewItemView(
         occurrence_id=occurrence.id,
@@ -97,6 +101,11 @@ def _review_item(
             if answer is not None
             else None
         ),
+        source_answer=occurrence.answer_quote,
+        source_answer_differs=(
+            occurrence.answer_quote != (answer.content if answer is not None else None)
+        ),
+        duplicate_candidates=duplicate_candidates or [],
         source_chunk_id=occurrence.source_chunk_id,
         source_block_ordinal=source_chunk.ordinal if source_chunk is not None else None,
         source_locator=source_chunk.locator if source_chunk is not None else {},
@@ -108,6 +117,61 @@ def _review_item(
         review_status=occurrence.review_status,
         created_at=occurrence.created_at,
     )
+
+
+def _collection_question_pool(
+    db: Session, owner_id: UUID, collection_id: UUID | None
+) -> list[Question]:
+    if collection_id is None:
+        return []
+    has_occurrence = exists(
+        select(QuestionOccurrence.id).where(
+            QuestionOccurrence.question_id == Question.id
+        )
+    )
+    has_visible_occurrence = exists(
+        select(QuestionOccurrence.id).where(
+            QuestionOccurrence.question_id == Question.id,
+            QuestionOccurrence.review_status != "REJECTED",
+        )
+    )
+    return list(
+        db.scalars(
+            select(Question)
+            .where(
+                Question.owner_id == owner_id,
+                Question.collection_id == collection_id,
+                Question.source_type != "SOURCE_REMOVED",
+                or_(~has_occurrence, has_visible_occurrence),
+            )
+            .options(selectinload(Question.answer))
+            .order_by(Question.created_at, Question.id)
+        ).all()
+    )
+
+
+def _duplicate_candidate_views(
+    question: Question, pool: list[Question]
+) -> list[DuplicateQuestionCandidateView]:
+    candidates: list[DuplicateQuestionCandidateView] = []
+    for other in pool:
+        if other.id == question.id:
+            continue
+        similarity = question_similarity(question.prompt, other.prompt)
+        if similarity < _DUPLICATE_REVIEW_THRESHOLD:
+            continue
+        candidates.append(
+            DuplicateQuestionCandidateView(
+                question_id=other.id,
+                prompt=other.prompt,
+                has_answer=other.answer is not None,
+                similarity=round(similarity, 4),
+            )
+        )
+    return sorted(
+        candidates,
+        key=lambda item: (-item.similarity, item.prompt, str(item.question_id)),
+    )[:3]
 
 
 def _suspected_misses(
@@ -361,6 +425,10 @@ def list_extraction_review_items(
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
+    asset = db.get(Asset, run.asset_id)
+    question_pool = _collection_question_pool(
+        db, owner_id, asset.collection_id if asset is not None else None
+    )
     all_occurrences = list(
         db.scalars(
             select(QuestionOccurrence).where(
@@ -376,7 +444,13 @@ def list_extraction_review_items(
         ).all()
     )
     return ExtractionReviewPage(
-        items=[_review_item(*row) for row in rows],
+        items=[
+            _review_item(
+                *row,
+                duplicate_candidates=_duplicate_candidate_views(row[1], question_pool),
+            )
+            for row in rows
+        ],
         page=page,
         page_size=page_size,
         total=total,
@@ -429,7 +503,14 @@ def update_extraction_review_item(
         )
     db.commit()
     db.refresh(occurrence)
-    return _review_item(occurrence, question, answer, source_chunk)
+    question_pool = _collection_question_pool(db, owner_id, question.collection_id)
+    return _review_item(
+        occurrence,
+        question,
+        answer,
+        source_chunk,
+        duplicate_candidates=_duplicate_candidate_views(question, question_pool),
+    )
 
 
 @router.put(
@@ -478,8 +559,23 @@ def update_extraction_review_items(
                 occurrence_id=occurrence.id,
             )
     db.commit()
+    pools: dict[UUID | None, list[Question]] = {}
+    for _, question, _, _ in rows:
+        if question.collection_id not in pools:
+            pools[question.collection_id] = _collection_question_pool(
+                db, owner_id, question.collection_id
+            )
     return ExtractionReviewBulkResult(
-        items=[_review_item(*rows_by_id[item.occurrence_id]) for item in payload.items],
+        items=[
+            _review_item(
+                *rows_by_id[item.occurrence_id],
+                duplicate_candidates=_duplicate_candidate_views(
+                    rows_by_id[item.occurrence_id][1],
+                    pools[rows_by_id[item.occurrence_id][1].collection_id],
+                ),
+            )
+            for item in payload.items
+        ],
         updated_count=len(payload.items),
     )
 
@@ -558,4 +654,11 @@ def create_missed_question(
     run.missing_count += 1
     db.commit()
     db.refresh(occurrence)
-    return _review_item(occurrence, question, None, source_chunk)
+    question_pool = _collection_question_pool(db, owner_id, question.collection_id)
+    return _review_item(
+        occurrence,
+        question,
+        None,
+        source_chunk,
+        duplicate_candidates=_duplicate_candidate_views(question, question_pool),
+    )

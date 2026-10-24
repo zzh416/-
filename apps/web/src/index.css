@@ -662,6 +662,19 @@ textarea {
   font-family: 'Noto Serif SC', 'Songti SC', SimSun, serif;
 }
 
+.review-comparison-alert {
+  margin: 0.75rem 0;
+}
+
+.duplicate-candidate-list {
+  margin: 0 0 0.45rem;
+  padding-left: 1.25rem;
+}
+
+.duplicate-candidate-list li + li {
+  margin-top: 0.35rem;
+}
+
 .review-question > :first-child,
 .review-answer > :first-child,
 .review-question > :last-child,

@@ -383,7 +383,11 @@ export function ExtractionReviewDrawer({
                               onLocate={(target) => locate({ kind: 'item', value: target })}
                               onEdit={(target, kind) => {
                                 setEditing({ item: target, kind })
-                                setDraft(kind === 'question' ? target.prompt : target.answer?.content ?? '')
+                                setDraft(
+                                  kind === 'question'
+                                    ? target.prompt
+                                    : target.answer?.content ?? target.sourceAnswer ?? '',
+                                )
                               }}
                               onDeleteAnswer={(target) => deleteAnswerMutation.mutate(target)}
                               onHistory={setHistoryTarget}

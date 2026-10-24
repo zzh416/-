@@ -8,6 +8,7 @@ import re
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.adapters.glm_text import (
     ExtractedPair,
@@ -25,11 +26,13 @@ from app.models import (
     AnswerRevision,
     Asset,
     Question,
+    QuestionChange,
     QuestionExtractionRun,
     QuestionOccurrence,
     TextChunk,
 )
 from app.modules.extraction_candidates import prefer_complete_source_answers
+from app.modules.question_identity import question_identity
 
 Extractor = Callable[..., list[ExtractedPair]]
 
@@ -343,6 +346,32 @@ def process_question_extraction_run(
             asset = db.get(Asset, run.asset_id)
             if asset is None:
                 return
+            reusable_questions = list(
+                db.scalars(
+                    select(Question)
+                    .where(
+                        Question.owner_id == run.owner_id,
+                        Question.collection_id == asset.collection_id,
+                        Question.source_type == "SOURCE_EXTRACTED",
+                    )
+                    .options(selectinload(Question.answer))
+                    .order_by(Question.created_at, Question.id)
+                    .with_for_update()
+                ).all()
+            )
+            reusable_by_identity: dict[str, Question] = {}
+            for reusable_question in reusable_questions:
+                reusable_by_identity.setdefault(
+                    question_identity(reusable_question.prompt), reusable_question
+                )
+            answer_edited_question_ids = set(
+                db.scalars(
+                    select(QuestionChange.question_id).where(
+                        QuestionChange.owner_id == run.owner_id,
+                        QuestionChange.field == "ANSWER",
+                    )
+                ).all()
+            )
             created_by_range: dict[
                 tuple[UUID, int, int], tuple[Question, QuestionOccurrence]
             ] = {}
@@ -419,6 +448,7 @@ def process_question_extraction_run(
                         and answer_text is not None
                         and existing_question.version == 1
                         and existing_occurrence.review_status == "PENDING"
+                        and existing_question.id not in answer_edited_question_ids
                     ):
                         answer = Answer(
                             owner_id=run.owner_id,
@@ -438,23 +468,44 @@ def process_question_extraction_run(
                             existing_occurrence.confidence, pair.confidence
                         )
                     continue
-                question = Question(
-                    owner_id=run.owner_id,
-                    collection_id=asset.collection_id,
-                    source_chunk_id=source_chunk.id,
-                    source_type="SOURCE_EXTRACTED",
-                    prompt=prompt,
-                )
-                if answer_text is not None:
+                identity = question_identity(prompt)
+                question = reusable_by_identity.get(identity)
+                if question is None:
+                    question = Question(
+                        owner_id=run.owner_id,
+                        collection_id=asset.collection_id,
+                        source_chunk_id=source_chunk.id,
+                        source_type="SOURCE_EXTRACTED",
+                        prompt=prompt,
+                    )
+                    if answer_text is not None:
+                        answer = Answer(
+                            owner_id=run.owner_id,
+                            content=answer_text,
+                            source_type="SOURCE_EXTRACTED",
+                        )
+                        answer.revisions.append(
+                            AnswerRevision(version=1, content=answer_text)
+                        )
+                        question.answer = answer
+                    db.add(question)
+                    db.flush()
+                    reusable_by_identity[identity] = question
+                elif (
+                    question.answer is None
+                    and answer_text is not None
+                    and question.version == 1
+                    and question.id not in answer_edited_question_ids
+                ):
                     answer = Answer(
                         owner_id=run.owner_id,
                         content=answer_text,
                         source_type="SOURCE_EXTRACTED",
                     )
-                    answer.revisions.append(AnswerRevision(version=1, content=answer_text))
+                    answer.revisions.append(
+                        AnswerRevision(version=1, content=answer_text)
+                    )
                     question.answer = answer
-                db.add(question)
-                db.flush()
                 occurrence = QuestionOccurrence(
                     question_id=question.id,
                     extraction_run_id=run.id,
@@ -475,7 +526,8 @@ def process_question_extraction_run(
                 created_by_range[source_key] = (question, occurrence)
             run.question_count = len(created_by_range)
             run.answered_count = sum(
-                question.answer is not None for question, _ in created_by_range.values()
+                occurrence.answer_quote is not None
+                for _, occurrence in created_by_range.values()
             )
             run.missing_count = run.question_count - run.answered_count
             if not created_by_range and validation_failures:

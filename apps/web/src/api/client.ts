@@ -197,6 +197,14 @@ export interface ExtractionReviewItem {
     sourceType: 'USER_WRITTEN' | 'SOURCE_EXTRACTED'
     version: number
   } | null
+  sourceAnswer: string | null
+  sourceAnswerDiffers: boolean
+  duplicateCandidates: Array<{
+    questionId: string
+    prompt: string
+    hasAnswer: boolean
+    similarity: number
+  }>
   sourceChunkId: string | null
   sourceBlockOrdinal: number | null
   sourceLocator: Record<string, unknown>

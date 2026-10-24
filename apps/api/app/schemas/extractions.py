@@ -91,6 +91,13 @@ class ExtractionAnswerView(APIModel):
     version: int
 
 
+class DuplicateQuestionCandidateView(APIModel):
+    question_id: UUID
+    prompt: str
+    has_answer: bool
+    similarity: float
+
+
 class QuestionOccurrenceView(APIModel):
     id: UUID
     question_id: UUID
@@ -116,6 +123,9 @@ class ExtractionReviewItemView(APIModel):
     question_version: int
     prompt: str
     answer: ExtractionAnswerView | None
+    source_answer: str | None
+    source_answer_differs: bool
+    duplicate_candidates: list[DuplicateQuestionCandidateView]
     source_chunk_id: UUID | None
     source_block_ordinal: int | None
     source_locator: dict

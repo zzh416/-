@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from typing import Literal
-import unicodedata
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -32,6 +30,7 @@ from app.modules.recommendation_service import (
     SkillSnapshot,
     build_recommendation,
 )
+from app.modules.question_identity import question_identity
 from app.schemas.recommendations import (
     RecommendationItemPage,
     RecommendationRunCreate,
@@ -161,19 +160,12 @@ def _content_fingerprint(questions: list[Question]) -> str:
     ).hexdigest()
 
 
-def _question_identity(prompt: str) -> str:
-    normalized = unicodedata.normalize("NFKC", prompt).casefold()
-    normalized = re.sub(r"[*_`#]", "", normalized)
-    normalized = re.sub(r"\s+", "", normalized)
-    return re.sub(r"[?!.。！？；;:：]+$", "", normalized)
-
-
 def _deduplicate_questions(questions: list[Question]) -> list[Question]:
     """Keep one equivalent prompt, preferring a usable and more recently edited answer."""
 
     selected: dict[str, Question] = {}
     for question in questions:
-        identity = _question_identity(question.prompt)
+        identity = question_identity(question.prompt)
         current = selected.get(identity)
         if current is None:
             selected[identity] = question

@@ -10,7 +10,7 @@ from app.config import settings
 from app.db import SessionLocal
 from app.identity import get_current_user_id
 from app.main import app
-from app.models import QuestionExtractionRun, QuestionOccurrence
+from app.models import Question, QuestionExtractionRun, QuestionOccurrence
 from app.modules.question_extraction_service import process_question_extraction_run
 from app.modules.question_extraction_service import (
     LoadedChunk,
@@ -459,6 +459,254 @@ def test_extraction_stops_before_model_call_when_input_exceeds_limit(
         assert finished["status"] == "FAILED"
         assert finished["errorCode"] == "EXTRACTION_INPUT_TOO_LARGE"
     finally:
+        if asset_id is not None:
+            client.delete(f"/api/v1/assets/{asset_id}")
+        client.delete(f"/api/v1/collections/{collection_id}")
+
+
+def test_extraction_deduplicates_equivalent_prompts_across_asset_versions(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "text_model_provider", "glm")
+    monkeypatch.setattr(settings, "glm_text_model", "glm-test-text")
+    monkeypatch.setattr(settings, "glm_api_key", "selected-test-key")
+    collection_id = _create_collection()
+    asset_id: str | None = None
+    question_id: str | None = None
+    monkeypatch.setattr(
+        "app.routes.extractions.celery_app.send_task",
+        lambda *args, **kwargs: SimpleNamespace(id="cross-run-dedup-task"),
+    )
+
+    def run_current_version(question_quote: str, answer_quote: str | None):
+        created = client.post(
+            f"/api/v1/assets/{asset_id}/question-extraction-runs",
+            headers={"Idempotency-Key": f"extract-{uuid4()}"},
+        )
+        assert created.status_code == 201
+        run_id = created.json()["id"]
+
+        def fake_extractor(blocks, **kwargs):
+            answer_spans = (
+                [ExtractedSpan(block_ordinal=1, quote=answer_quote)]
+                if answer_quote is not None
+                else []
+            )
+            return [
+                ExtractedPair(
+                    question=ExtractedSpan(block_ordinal=0, quote=question_quote),
+                    answer_spans=answer_spans,
+                    confidence=0.96,
+                )
+            ]
+
+        process_question_extraction_run(UUID(run_id), extractor=fake_extractor)
+        return run_id, client.get(f"/api/v1/question-extraction-runs/{run_id}").json()
+
+    try:
+        first_question = "#### 1. 什么是 GIL？"
+        first_answer = "GIL 是 CPython 的全局解释器锁。"
+        asset = client.post(
+            f"/api/v1/collections/{collection_id}/assets/text",
+            json={
+                "title": "跨运行去重",
+                "content": f"{first_question}\n\n{first_answer}",
+                "sourceFormat": "PASTED_TEXT",
+            },
+        )
+        assert asset.status_code == 201
+        asset_id = asset.json()["id"]
+        first_run_id, first_run = run_current_version(first_question, first_answer)
+        assert (first_run["questionCount"], first_run["answeredCount"]) == (1, 1)
+
+        second_question = "### 什么是GIL?"
+        second_answer = "GIL 用于协调 CPython 字节码执行。"
+        revised = client.put(
+            f"/api/v1/assets/{asset_id}/content",
+            json={
+                "content": f"{second_question}\n\n{second_answer}",
+                "expectedVersion": 1,
+            },
+        )
+        assert revised.status_code == 200
+        second_run_id, second_run = run_current_version(second_question, second_answer)
+        assert (second_run["questionCount"], second_run["answeredCount"]) == (1, 1)
+
+        third_question = "## 2、什么是 GIL"
+        revised = client.put(
+            f"/api/v1/assets/{asset_id}/content",
+            json={"content": third_question, "expectedVersion": 2},
+        )
+        assert revised.status_code == 200
+        third_run_id, third_run = run_current_version(third_question, None)
+        assert (third_run["questionCount"], third_run["answeredCount"], third_run["missingCount"]) == (
+            1,
+            0,
+            1,
+        )
+
+        page = client.get(
+            "/api/v1/questions", params={"collectionId": collection_id}
+        ).json()
+        assert page["total"] == 1
+        question_id = page["items"][0]["id"]
+        assert page["items"][0]["prompt"] == "1. 什么是 GIL？"
+        assert page["items"][0]["answer"]["content"] == first_answer
+
+        with SessionLocal() as db:
+            questions = list(
+                db.scalars(
+                    select(Question).where(
+                        Question.collection_id == UUID(collection_id)
+                    )
+                )
+            )
+            occurrences = list(
+                db.scalars(
+                    select(QuestionOccurrence)
+                    .where(QuestionOccurrence.question_id == UUID(question_id))
+                    .order_by(QuestionOccurrence.created_at)
+                )
+            )
+        assert len(questions) == 1
+        assert len(occurrences) == 3
+        assert {str(item.extraction_run_id) for item in occurrences} == {
+            first_run_id,
+            second_run_id,
+            third_run_id,
+        }
+        assert [item.answer_quote for item in occurrences] == [
+            first_answer,
+            second_answer,
+            None,
+        ]
+
+        second_review = client.get(
+            f"/api/v1/question-extraction-runs/{second_run_id}/review-items"
+        ).json()["items"][0]
+        assert second_review["answer"]["content"] == first_answer
+        assert second_review["sourceAnswer"] == second_answer
+        assert second_review["sourceAnswerDiffers"] is True
+
+        third_review = client.get(
+            f"/api/v1/question-extraction-runs/{third_run_id}/review-items"
+        ).json()["items"][0]
+        assert third_review["answer"]["content"] == first_answer
+        assert third_review["sourceAnswer"] is None
+        assert third_review["sourceAnswerDiffers"] is True
+
+        deleted = client.delete(
+            f"/api/v1/questions/{question_id}/answer",
+            params={"expectedVersion": 1},
+        )
+        assert deleted.status_code == 204
+        fourth_answer = "这段答案来自后续资料，但不应覆盖用户主动删除的答案。"
+        revised = client.put(
+            f"/api/v1/assets/{asset_id}/content",
+            json={
+                "content": f"{second_question}\n\n{fourth_answer}",
+                "expectedVersion": 3,
+            },
+        )
+        assert revised.status_code == 200
+        fourth_run_id, fourth_run = run_current_version(second_question, fourth_answer)
+        assert (fourth_run["questionCount"], fourth_run["answeredCount"]) == (1, 1)
+
+        updated_page = client.get(
+            "/api/v1/questions", params={"collectionId": collection_id}
+        ).json()
+        assert updated_page["total"] == 1
+        assert updated_page["items"][0]["answer"] is None
+        fourth_review = client.get(
+            f"/api/v1/question-extraction-runs/{fourth_run_id}/review-items"
+        ).json()["items"][0]
+        assert fourth_review["answer"] is None
+        assert fourth_review["sourceAnswer"] == fourth_answer
+        assert fourth_review["sourceAnswerDiffers"] is True
+    finally:
+        if question_id is not None:
+            client.delete(f"/api/v1/questions/{question_id}")
+        if asset_id is not None:
+            client.delete(f"/api/v1/assets/{asset_id}")
+        client.delete(f"/api/v1/collections/{collection_id}")
+
+
+def test_extraction_review_surfaces_fuzzy_duplicate_candidates(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "text_model_provider", "glm")
+    monkeypatch.setattr(settings, "glm_text_model", "glm-test-text")
+    monkeypatch.setattr(settings, "glm_api_key", "selected-test-key")
+    collection_id = _create_collection()
+    asset_id: str | None = None
+    question_ids: list[str] = []
+    monkeypatch.setattr(
+        "app.routes.extractions.celery_app.send_task",
+        lambda *args, **kwargs: SimpleNamespace(id="fuzzy-review-task"),
+    )
+
+    def extract_current_version(quote: str) -> str:
+        created = client.post(
+            f"/api/v1/assets/{asset_id}/question-extraction-runs",
+            headers={"Idempotency-Key": f"extract-{uuid4()}"},
+        )
+        assert created.status_code == 201
+        run_id = created.json()["id"]
+        process_question_extraction_run(
+            UUID(run_id),
+            extractor=lambda blocks, **kwargs: [
+                ExtractedPair(
+                    question=ExtractedSpan(block_ordinal=0, quote=quote),
+                    answer_spans=[],
+                    confidence=0.91,
+                )
+            ],
+        )
+        return run_id
+
+    try:
+        first_prompt = "Python 中的 GIL 是什么？"
+        asset = client.post(
+            f"/api/v1/collections/{collection_id}/assets/text",
+            json={
+                "title": "模糊重复候选",
+                "content": first_prompt,
+                "sourceFormat": "PASTED_TEXT",
+            },
+        )
+        assert asset.status_code == 201
+        asset_id = asset.json()["id"]
+        extract_current_version(first_prompt)
+
+        second_prompt = "Python 的 GIL 是什么作用？"
+        revised = client.put(
+            f"/api/v1/assets/{asset_id}/content",
+            json={"content": second_prompt, "expectedVersion": 1},
+        )
+        assert revised.status_code == 200
+        second_run_id = extract_current_version(second_prompt)
+
+        page = client.get(
+            "/api/v1/questions", params={"collectionId": collection_id}
+        ).json()
+        question_ids = [item["id"] for item in page["items"]]
+        assert page["total"] == 2
+
+        review = client.get(
+            f"/api/v1/question-extraction-runs/{second_run_id}/review-items"
+        ).json()["items"][0]
+        assert review["prompt"] == second_prompt
+        assert review["duplicateCandidates"] == [
+            {
+                "questionId": next(
+                    item["id"] for item in page["items"] if item["prompt"] == first_prompt
+                ),
+                "prompt": first_prompt,
+                "hasAnswer": False,
+                "similarity": pytest.approx(0.89, abs=0.02),
+            }
+        ]
+    finally:
+        for question_id in question_ids:
+            client.delete(f"/api/v1/questions/{question_id}")
         if asset_id is not None:
             client.delete(f"/api/v1/assets/{asset_id}")
         client.delete(f"/api/v1/collections/{collection_id}")
