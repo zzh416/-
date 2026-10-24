@@ -1,8 +1,8 @@
 # 面经综合助手
 
-把分散的面经和内部八股知识整理成可检索、可修订的个人问答库。完整架构与后续阶段见 [架构与技术选型设计](./面经综合助手_架构与技术选型设计.md)，下一步的详细拆分见 [P3 计划与下一版本路线](./docs/P3计划与下一版本路线.md)。
+把分散的面经和内部八股知识整理成可检索、可修订的个人问答库。完整架构见 [架构与技术选型设计](./面经综合助手_架构与技术选型设计.md)，当前发布证据见 [P4 阶段验收记录](./docs/P4阶段验收记录.md)。
 
-## 当前已支持（P1、P2 与 P3 已完成部分）
+## 当前已支持（P1–P4）
 
 - 创建面经或知识库资料库。
 - 粘贴纯文字/Markdown，或导入 UTF-8 编码的 `.txt`、`.md`、`.markdown` 文件；单份上限 1 MiB。
@@ -25,8 +25,12 @@
 - 管理全局优先/排除偏好及其题目/答案作用范围，并支持技术目录和自定义技术项。
 - 生成版本化的“我的复习清单”：题干和答案分别识别技术依赖，显示进入、排除、排序及答案不适用原因；画像、规则或题库内容变化后旧结果会提示重新生成。
 - 自动整理失败或部分成功时可安全重试，最多三次；重复请求不会重复建题，也不会覆盖已复核或人工修改内容。
+- 默认 Compose 使用构建后的前端和无热更新 API；API、Worker、Web 与渲染器使用只读根文件系统、非 root 用户、资源限制和轮转日志。
+- API 响应包含请求关联 ID、禁止私有数据缓存的响应头和不记录正文的最小访问日志。
+- PowerShell 脚本同时备份 PostgreSQL 与 `data/`，使用 SHA-256 清单验真，并支持恢复前自动安全备份、失败回滚和完整恢复演练。
+- 隔离性能基准覆盖 5,000 道题和 20,000 个来源块；稳定模式支持全服务健康检查和重启持久化验证。
 
-P3 尚未全部完成。个性化清单不会改写基础题库，用户可以随时回看被排除的题目及原因。下一步补齐抽取复核增强项和 P3 总验收。当前版本不提供 AI 答案生成，按需生成缺失答案留到下一版本。
+当前版本的 P1–P4 已完成。个性化清单不会改写基础题库，用户可以随时回看被排除的题目及原因。当前没有长截图、真实扫描 PDF 和图文混排 Word 样本，这三类质量补验会在取得样本后继续；它们不影响已验收格式的使用。当前版本不提供 AI 答案生成，按需生成缺失答案留到下一版本。
 
 ## 技术栈
 
@@ -45,6 +49,12 @@ P3 尚未全部完成。个性化清单不会改写基础题库，用户可以�
 ```bash
 cp infra/.env.example infra/.env
 docker compose -f infra/docker-compose.yml up -d --build
+```
+
+默认命令启动稳定运行模式。开发时需要源码热更新，可叠加开发覆盖文件：
+
+```bash
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d --build
 ```
 
 纯文字、文本型 PDF/Word 和网页正文的基础解析不需要模型 API Key。AI 自动整理题目和简历画像提取通过 `infra/.env` 的 `TEXT_MODEL_PROVIDER=glm|deepseek` 选择文字模型，图片识别通过 `OCR_PROVIDER=glm|deepseek` 独立选择；二者都使用所选服务商的 `GLM_API_KEY` 或 `DEEPSEEK_API_KEY`，默认 GLM，失败时不会自动切换服务商。
@@ -68,11 +78,11 @@ docker compose -f infra/docker-compose.yml down
 
 ## 更新依赖
 
-前端镜像使用 `package-lock.json` 和 `npm ci`。修改前端依赖后，只刷新 Web 的匿名 `node_modules` 卷，避免删除数据库卷：
+前端镜像使用 `package-lock.json` 和 `npm ci`。修改前端代码或依赖后重建 Web；该操作不会删除数据库卷：
 
 ```bash
 docker compose -f infra/docker-compose.yml build web
-docker compose -f infra/docker-compose.yml up -d --no-deps --force-recreate --renew-anon-volumes web
+docker compose -f infra/docker-compose.yml up -d --no-deps --force-recreate web
 ```
 
 后端直接依赖记录在 `apps/api/requirements.txt`，完整解析版本固定在 `apps/api/requirements.lock`，镜像按锁文件安装。升级版本后重建 API 与 Worker，并运行完整测试。
@@ -86,6 +96,17 @@ docker compose -f infra/docker-compose.yml exec -T web npm run lint
 docker compose -f infra/docker-compose.yml exec -T web npm run build
 docker compose -f infra/docker-compose.yml config --quiet
 docker compose -f infra/docker-compose.yml exec -T api python scripts/p2_live_smoke.py
+docker compose -f infra/docker-compose.yml exec -T api python scripts/p4_performance.py
 ```
+
+## 备份与恢复
+
+```powershell
+.\infra\backup.ps1
+.\infra\verify-backup.ps1 -BackupPath .\backups\20261024-120000
+.\infra\restore.ps1 -BackupPath .\backups\20261024-120000 -ConfirmRestore
+```
+
+恢复会先完整验证备份，再自动备份当前数据。备份包含 PostgreSQL 和 `data/`，不包含 `infra/.env`、API Key 或 Redis 临时任务队列。具体流程见 [启动步骤](./启动步骤.md)。
 
 项目私有原件保存在 `data/`，环境变量保存在 `infra/.env`；两者都被 `.gitignore` 排除。
