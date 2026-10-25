@@ -162,3 +162,28 @@ class ExtractionReviewPage(APIModel):
     confirmed_count: int
     rejected_count: int
     suspected_misses: list[SuspectedMissView]
+    quality: "ExtractionQualityView"
+
+
+class ExtractionDiagnosticsView(APIModel):
+    planned_batch_count: int
+    completed_batch_count: int
+    failed_batch_count: int
+    model_candidate_count: int
+    invalid_source_count: int | None = None
+    duplicate_range_count: int | None = None
+
+
+class ExtractionQualityView(APIModel):
+    occurrence_count: int
+    unique_question_count: int
+    active_question_count: int
+    pending_count: int
+    confirmed_count: int
+    rejected_count: int
+    source_answered_count: int
+    source_missing_count: int
+    suspected_miss_count: int
+    suspected_misses_truncated: bool
+    is_current_version: bool
+    diagnostics: ExtractionDiagnosticsView | None

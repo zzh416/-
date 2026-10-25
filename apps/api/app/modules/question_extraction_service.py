@@ -37,6 +37,14 @@ from app.modules.question_identity import question_identity
 Extractor = Callable[..., list[ExtractedPair]]
 
 
+def _save_diagnostics(run_id: UUID, diagnostics: dict) -> None:
+    with SessionLocal() as db:
+        run = db.get(QuestionExtractionRun, run_id)
+        if run is not None:
+            run.diagnostics = dict(diagnostics)
+            db.commit()
+
+
 @dataclass(frozen=True)
 class LoadedChunk:
     id: UUID
@@ -244,6 +252,7 @@ def process_question_extraction_run(
         if run is None or run.status in {"SUCCEEDED", "PROCESSING"}:
             return
         run.status = "PROCESSING"
+        run.diagnostics = None
         run.stage = "MODEL"
         run.model = model_config.model
         run.started_at = datetime.now(timezone.utc)
@@ -281,6 +290,10 @@ def process_question_extraction_run(
     )
     pairs: list[ExtractedPair] = []
     batch_failures: list[tuple[int, TextModelError]] = []
+    diagnostics = {"planned_batch_count": len(batches), "completed_batch_count": 0,
+        "failed_batch_count": 0, "model_candidate_count": 0,
+        "invalid_source_count": None, "duplicate_range_count": None}
+    _save_diagnostics(run_id, diagnostics)
     for batch_number, batch in enumerate(batches, start=1):
         _set_batch_stage(run_id, batch_number, len(batches))
         try:
@@ -297,7 +310,9 @@ def process_question_extraction_run(
                     max_output_tokens=settings.question_extraction_max_output_tokens,
                 )
             )
+            diagnostics["completed_batch_count"] += 1
         except TextModelNotConfigured as exc:
+            diagnostics["failed_batch_count"] += 1
             _finish_failure(
                 run_id,
                 "TEXT_MODEL_NOT_CONFIGURED",
@@ -306,6 +321,7 @@ def process_question_extraction_run(
             )
             return
         except TextModelError as exc:
+            diagnostics["failed_batch_count"] += 1
             if exc.code not in {
                 "TEXT_MODEL_INVALID_RESPONSE",
                 "TEXT_MODEL_OUTPUT_TRUNCATED",
@@ -314,12 +330,16 @@ def process_question_extraction_run(
                 return
             batch_failures.append((batch_number, exc))
         except Exception:
+            diagnostics["failed_batch_count"] += 1
             _finish_failure(
                 run_id,
                 "TEXT_MODEL_INTERNAL_ERROR",
                 f"第 {batch_number} 批发生内部错误，请稍后重试",
             )
             return
+        finally:
+            diagnostics["model_candidate_count"] = len(pairs)
+            _save_diagnostics(run_id, diagnostics)
 
     if not pairs and batch_failures:
         first_batch, first_error = batch_failures[0]
@@ -391,6 +411,7 @@ def process_question_extraction_run(
                     )
                 ] = (question, occurrence)
             validation_failures = 0
+            duplicate_ranges = 0
             for pair in pairs:
                 try:
                     source_chunk, question_quote, question_start, question_end = (
@@ -442,6 +463,7 @@ def process_question_extraction_run(
                 ]
                 existing = created_by_range.get(source_key)
                 if existing is not None:
+                    duplicate_ranges += 1
                     existing_question, existing_occurrence = existing
                     if (
                         existing_question.answer is None
@@ -524,6 +546,9 @@ def process_question_extraction_run(
                 )
                 db.add(occurrence)
                 created_by_range[source_key] = (question, occurrence)
+            diagnostics["invalid_source_count"] = validation_failures
+            diagnostics["duplicate_range_count"] = duplicate_ranges
+            run.diagnostics = dict(diagnostics)
             run.question_count = len(created_by_range)
             run.answered_count = sum(
                 occurrence.answer_quote is not None

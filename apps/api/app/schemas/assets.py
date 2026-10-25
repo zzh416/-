@@ -1,5 +1,5 @@
 """文字资料导入与版本响应。"""
-from datetime import datetime
+from datetime import date, datetime, timezone
 from typing import Literal
 from uuid import UUID
 
@@ -61,6 +61,18 @@ class AssetContentUpdate(APIModel):
         return value
 
 
+class AssetSourceMetadataUpdate(APIModel):
+    source_date: date | None
+    expected_version: int = Field(ge=1)
+
+    @field_validator("source_date")
+    @classmethod
+    def date_cannot_be_in_future(cls, value: date | None) -> date | None:
+        if value is not None and value > datetime.now(timezone.utc).date():
+            raise ValueError("资料日期不能晚于今天")
+        return value
+
+
 class AssetUrlCreate(APIModel):
     url: str = Field(min_length=8, max_length=2048)
     title: str | None = Field(default=None, max_length=200)
@@ -114,6 +126,8 @@ class AssetSummary(APIModel):
     content_type: str | None
     byte_size: int | None
     fetched_at: datetime | None
+    source_date: date | None = None
+    source_metadata_version: int = 1
     status: AssetStatus
     current_version: int
     job: IngestionJobView | None = None

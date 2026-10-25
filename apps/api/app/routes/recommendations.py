@@ -31,6 +31,7 @@ from app.modules.recommendation_service import (
     build_recommendation,
 )
 from app.modules.question_identity import question_identity
+from app.modules.source_statistics import question_source_statistics
 from app.schemas.recommendations import (
     RecommendationItemPage,
     RecommendationRunCreate,
@@ -146,12 +147,13 @@ def _visible_questions(db: Session, owner_id: UUID) -> list[Question]:
     )
 
 
-def _content_fingerprint(questions: list[Question]) -> str:
+def _content_fingerprint(questions: list[Question], source_statistics: dict) -> str:
     snapshot = [
         {
             "id": str(question.id),
             "question_version": question.version,
             "answer_version": question.answer.version if question.answer is not None else None,
+            "sources": source_statistics[question.id].model_dump(mode="json"),
         }
         for question in questions
     ]
@@ -192,7 +194,8 @@ def _deduplicate_questions(questions: list[Question]) -> list[Question]:
 def _run_view(db: Session, run: RecommendationRun, owner_id: UUID) -> RecommendationRunView:
     _, current_profile_version, _, _ = _profile_context(db, owner_id)
     _, _, current_fingerprint = _rule_context(db, owner_id)
-    current_content_fingerprint = _content_fingerprint(_visible_questions(db, owner_id))
+    questions = _visible_questions(db, owner_id)
+    current_content_fingerprint = _content_fingerprint(questions, question_source_statistics(db, owner_id, questions))
     return RecommendationRunView(
         id=run.id,
         status=run.status,
@@ -238,7 +241,8 @@ def create_recommendation_run(
     profile_version_id, profile_version, profile_snapshot, skills = _profile_context(db, owner_id)
     rule_snapshot, rules, rules_fingerprint = _rule_context(db, owner_id)
     questions = _visible_questions(db, owner_id)
-    content_fingerprint = _content_fingerprint(questions)
+    source_statistics = question_source_statistics(db, owner_id, questions)
+    content_fingerprint = _content_fingerprint(questions, source_statistics)
     digest = request_hash(
         {
             **payload.model_dump(mode="json"),
@@ -307,6 +311,7 @@ def create_recommendation_run(
                 answer_technologies=[item.__dict__ for item in evaluation.answer_technologies],
                 reason_codes=list(evaluation.reason_codes),
                 reasons=list(evaluation.reasons),
+                source_statistics=source_statistics[question.id].model_dump(mode="json"),
             )
         )
     run.included_count = sum(item.decision == "INCLUDED" for _, item in evaluated)

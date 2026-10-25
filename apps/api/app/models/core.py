@@ -1,7 +1,7 @@
 """P1 的本地用户与资料库实体。"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
@@ -9,6 +9,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     DateTime,
+    Date,
     Float,
     ForeignKey,
     Integer,
@@ -77,6 +78,8 @@ class Asset(Base):
     byte_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    source_metadata_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     status: Mapped[str] = mapped_column(String(32), default="READY", server_default="READY")
     current_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -164,6 +167,7 @@ class QuestionExtractionRun(Base):
     )
     status: Mapped[str] = mapped_column(String(32), default="QUEUED", server_default="QUEUED")
     stage: Mapped[str] = mapped_column(String(32), default="QUEUED", server_default="QUEUED")
+    diagnostics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     question_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     answered_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     missing_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -474,6 +478,7 @@ class RecommendationItem(Base):
     answer_technologies: Mapped[list[dict]] = mapped_column(JSON, default=list, server_default="[]")
     reason_codes: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     reasons: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
+    source_statistics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     run: Mapped[RecommendationRun] = relationship(back_populates="items")

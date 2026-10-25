@@ -4,6 +4,7 @@ from typing import Literal
 from uuid import UUID
 
 from app.schemas.common import APIModel
+from app.schemas.sources import SourceStatistics
 
 
 class RecommendationRunCreate(APIModel):
@@ -72,6 +73,7 @@ class RecommendationItemView(APIModel):
     answer_technologies: list[TechnologyMatchView]
     reason_codes: list[str]
     reasons: list[str]
+    source_statistics: SourceStatistics | None = None
 
 
 class RecommendationItemPage(APIModel):

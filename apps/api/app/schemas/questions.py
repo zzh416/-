@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import Field, computed_field, field_validator
 
 from app.schemas.common import APIModel
+from app.schemas.sources import SourceStatistics
 
 
 class QuestionCreate(APIModel):
@@ -65,6 +66,7 @@ class QuestionView(APIModel):
     note: NoteView | None
     created_at: datetime
     updated_at: datetime
+    source_statistics: SourceStatistics = Field(default_factory=SourceStatistics)
 
     @computed_field
     @property

@@ -19,6 +19,7 @@ from app.modules.ingestion_validation import classify_upload, normalize_public_u
 from app.modules.storage import delete_original, sanitize_filename, save_original
 from app.schemas.assets import (
     AssetContentUpdate,
+    AssetSourceMetadataUpdate,
     AssetDetail,
     AssetPage,
     AssetSummary,
@@ -30,6 +31,20 @@ from app.schemas.assets import (
 from app.workers.celery_app import celery_app
 
 router = APIRouter(tags=["assets"])
+
+
+@router.put("/assets/{asset_id}/source-metadata", response_model=AssetSummary)
+def update_source_metadata(asset_id: UUID, payload: AssetSourceMetadataUpdate, db: Session = Depends(get_db), owner_id: UUID = Depends(get_current_user_id)) -> Asset:
+    asset = db.scalar(select(Asset).where(Asset.id == asset_id, Asset.owner_id == owner_id, Asset.kind == "LIBRARY").with_for_update())
+    if asset is None:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    if asset.source_metadata_version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="来源信息已变化，请刷新后重试")
+    asset.source_date = payload.source_date
+    asset.source_metadata_version += 1
+    db.commit()
+    db.refresh(asset)
+    return asset
 
 
 def _owned_collection(db: Session, collection_id: UUID, owner_id: UUID) -> Collection:

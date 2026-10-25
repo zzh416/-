@@ -33,6 +33,7 @@ from app.schemas.extractions import (
     ExtractionReviewBulkUpdate,
     ExtractionReviewItemView,
     ExtractionReviewPage,
+    ExtractionQualityView,
     ExtractionReviewUpdate,
     MissedQuestionCreate,
     QuestionExtractionRunView,
@@ -41,6 +42,18 @@ from app.schemas.extractions import (
 from app.workers.celery_app import celery_app
 
 router = APIRouter(tags=["question-extractions"])
+
+
+@router.get("/assets/{asset_id}/question-extraction-runs/latest", response_model=QuestionExtractionRunView | None)
+def get_latest_asset_extraction(asset_id: UUID, db: Session = Depends(get_db), owner_id: UUID = Depends(get_current_user_id)):
+    asset = db.scalar(select(Asset).where(Asset.id == asset_id, Asset.owner_id == owner_id, Asset.kind == "LIBRARY"))
+    if asset is None:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    return db.scalar(
+        select(QuestionExtractionRun).join(AssetVersion, AssetVersion.id == QuestionExtractionRun.asset_version_id)
+        .where(QuestionExtractionRun.asset_id == asset.id, QuestionExtractionRun.owner_id == owner_id, AssetVersion.version == asset.current_version)
+        .order_by(QuestionExtractionRun.created_at.desc(), QuestionExtractionRun.id.desc()).limit(1)
+    )
 
 _REVIEW_ACTION_STATUS = {
     "CONFIRM": "CONFIRMED",
@@ -443,6 +456,9 @@ def list_extraction_review_items(
             .order_by(TextChunk.ordinal)
         ).all()
     )
+    suspected_misses = _suspected_misses(chunks, all_occurrences)
+    active_occurrences = [item for item in all_occurrences if item.review_status != "REJECTED"]
+    source_answered = sum(bool(item.answer_quote and item.answer_quote.strip()) for item in active_occurrences)
     return ExtractionReviewPage(
         items=[
             _review_item(
@@ -457,7 +473,20 @@ def list_extraction_review_items(
         pending_count=status_counts.get("PENDING", 0),
         confirmed_count=status_counts.get("CONFIRMED", 0),
         rejected_count=status_counts.get("REJECTED", 0),
-        suspected_misses=_suspected_misses(chunks, all_occurrences),
+        suspected_misses=suspected_misses,
+        quality=ExtractionQualityView(
+            occurrence_count=len(all_occurrences),
+            unique_question_count=len({item.question_id for item in all_occurrences}),
+            active_question_count=len({item.question_id for item in active_occurrences}),
+            pending_count=status_counts.get("PENDING", 0), confirmed_count=status_counts.get("CONFIRMED", 0),
+            rejected_count=status_counts.get("REJECTED", 0), source_answered_count=source_answered,
+            source_missing_count=len(active_occurrences) - source_answered,
+            suspected_miss_count=len(suspected_misses), suspected_misses_truncated=len(suspected_misses) >= 100,
+            is_current_version=asset is not None and db.scalar(
+                select(AssetVersion.version).where(AssetVersion.id == run.asset_version_id)
+            ) == asset.current_version,
+            diagnostics=run.diagnostics,
+        ),
     )
 
 

@@ -23,6 +23,8 @@ from app.models import (
     TextChunk,
 )
 from app.modules.question_history import record_question_change
+from app.modules.source_statistics import question_source_statistics
+from app.schemas.sources import SourceStatistics
 from app.schemas.questions import (
     AnswerView,
     NoteView,
@@ -201,8 +203,9 @@ def list_questions(
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
+    statistics = question_source_statistics(db, owner_id, list(items))
     return QuestionPage(
-        items=list(items),
+        items=[QuestionView.model_validate(question).model_copy(update={"source_statistics": statistics[question.id]}) for question in items],
         page=page,
         page_size=page_size,
         total=total,
@@ -216,8 +219,17 @@ def get_question(
     question_id: UUID,
     db: Session = Depends(get_db),
     owner_id: UUID = Depends(get_current_user_id),
-) -> Question:
-    return _get_question(db, question_id, owner_id)
+) -> QuestionView:
+    question = _get_question(db, question_id, owner_id)
+    return QuestionView.model_validate(question).model_copy(
+        update={"source_statistics": question_source_statistics(db, owner_id, [question])[question.id]}
+    )
+
+
+@router.get("/{question_id}/sources", response_model=SourceStatistics)
+def get_question_sources(question_id: UUID, db: Session = Depends(get_db), owner_id: UUID = Depends(get_current_user_id)) -> SourceStatistics:
+    question = _get_question(db, question_id, owner_id)
+    return question_source_statistics(db, owner_id, [question])[question.id]
 
 
 @router.put("/{question_id}", response_model=QuestionView)
