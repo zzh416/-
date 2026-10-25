@@ -427,7 +427,7 @@ export interface RecommendationItemPage {
   missingCount: number
 }
 
-async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function checkedResponse(path: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(path, init)
   if (!response.ok) {
     let message = `请求失败（HTTP ${response.status}）`
@@ -444,6 +444,11 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(message)
   }
+  return response
+}
+
+async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await checkedResponse(path, init)
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
@@ -730,6 +735,15 @@ export const deletePreferenceRule = (ruleId: string, expectedVersion: number) =>
 
 export const fetchLatestRecommendationRun = () =>
   apiRequest<RecommendationRun | null>('/api/v1/recommendation-runs/latest')
+
+export async function fetchRecommendationExport(runId: string, includeNotes: boolean): Promise<Blob> {
+  const params = new URLSearchParams({ includeNotes: String(includeNotes) })
+  const response = await checkedResponse(`/api/v1/recommendation-runs/${runId}/export?${params}`)
+  if (!response.headers.get('Content-Type')?.startsWith('text/markdown')) {
+    throw new Error('下载内容格式异常，请刷新后重试')
+  }
+  return response.blob()
+}
 
 export const createRecommendationRun = () =>
   apiRequest<RecommendationRun>('/api/v1/recommendation-runs', idempotentCreate({}))

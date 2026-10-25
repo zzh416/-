@@ -10,6 +10,7 @@ import {
   type UsableAnswerState,
 } from '../api/client'
 import { RecommendationItemCard } from './RecommendationItemCard'
+import { RecommendationExportButton } from './RecommendationExportButton'
 
 
 interface RecommendationDrawerProps {
@@ -112,6 +113,10 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
           <Typography.Paragraph type="secondary" className="recommendation-version">
             画像版本 {run.profileVersion} · 规则 {run.ruleSnapshot.length} 条 · 算法 {run.algorithmVersion}
             {' · '}{new Date(run.createdAt).toLocaleString()}
+          </Typography.Paragraph>
+
+          <Typography.Paragraph>
+            <RecommendationExportButton key={run.id} run={run} notify={notify} />
           </Typography.Paragraph>
 
           <div className="recommendation-filters">
