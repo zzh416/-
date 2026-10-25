@@ -361,6 +361,7 @@ class ProfileVersion(Base):
         ForeignKey("asset_versions.id", ondelete="SET NULL"), nullable=True
     )
     target_role: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    projects: Mapped[list[dict]] = mapped_column(JSON, default=list, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     skills: Mapped[list["ProfileSkill"]] = relationship(
@@ -479,6 +480,7 @@ class RecommendationItem(Base):
     reason_codes: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     reasons: Mapped[list[str]] = mapped_column(JSON, default=list, server_default="[]")
     source_statistics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    project_matches: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     run: Mapped[RecommendationRun] = relationship(back_populates="items")

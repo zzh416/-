@@ -10,7 +10,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import cast, exists, func, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -36,6 +37,7 @@ from app.modules.recommendation_service import (
 )
 from app.modules.question_identity import question_identity
 from app.modules.recommendation_export import render_prep_package
+from app.modules.project_matching import PROJECT_MATCH_VERSION, match_projects, prepare_projects
 from app.modules.source_statistics import question_source_statistics
 from app.schemas.recommendations import (
     RecommendationItemPage,
@@ -93,7 +95,7 @@ def _profile_context(
 ) -> tuple[UUID | None, int, dict, list[SkillSnapshot]]:
     profile = db.scalar(select(UserProfile).where(UserProfile.owner_id == owner_id))
     if profile is None or profile.current_version == 0:
-        return None, 0, {"target_role": None, "skills": []}, []
+        return None, 0, {"target_role": None, "skills": [], "projects": [], "project_matching_version": PROJECT_MATCH_VERSION}, []
     version = db.scalar(
         select(ProfileVersion)
         .where(
@@ -116,7 +118,7 @@ def _profile_context(
     return (
         version.id,
         version.version,
-        {"target_role": version.target_role, "skills": skill_snapshot},
+        {"target_role": version.target_role, "skills": skill_snapshot, "projects": version.projects, "project_matching_version": PROJECT_MATCH_VERSION},
         [
             SkillSnapshot(
                 skill.canonical_name,
@@ -213,6 +215,7 @@ def _run_view(db: Session, run: RecommendationRun, owner_id: UUID) -> Recommenda
             and run.rules_fingerprint == current_fingerprint
             and run.content_fingerprint == current_content_fingerprint
             and run.algorithm_version == ALGORITHM_VERSION
+            and run.profile_snapshot.get("project_matching_version") == PROJECT_MATCH_VERSION
         ),
         total_count=run.total_count,
         included_count=run.included_count,
@@ -255,6 +258,7 @@ def create_recommendation_run(
             "rulesFingerprint": rules_fingerprint,
             "contentFingerprint": content_fingerprint,
             "algorithmVersion": ALGORITHM_VERSION,
+            "projectMatchingVersion": PROJECT_MATCH_VERSION,
         }
     )
     replay_id = replay_resource_id(
@@ -295,6 +299,7 @@ def create_recommendation_run(
     )
     db.add(run)
     db.flush()
+    projects = prepare_projects(profile_snapshot["projects"])
     for position, (question, evaluation) in enumerate(evaluated, start=1):
         answer = question.answer
         db.add(
@@ -317,6 +322,7 @@ def create_recommendation_run(
                 reason_codes=list(evaluation.reason_codes),
                 reasons=list(evaluation.reasons),
                 source_statistics=source_statistics[question.id].model_dump(mode="json"),
+                project_matches=match_projects(question.prompt, projects) if evaluation.decision == "INCLUDED" else [],
             )
         )
     run.included_count = sum(item.decision == "INCLUDED" for _, item in evaluated)
@@ -374,17 +380,28 @@ def list_recommendation_items(
         default="ANY", alias="usableAnswerState"
     ),
     q: str | None = None,
+    project_id: UUID | None = Query(default=None, alias="projectId"),
+    unmatched_only: bool = Query(default=False, alias="unmatchedOnly"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100, alias="pageSize"),
     db: Session = Depends(get_db),
     owner_id: UUID = Depends(get_current_user_id),
 ) -> RecommendationItemPage:
     run = _owned_run(db, run_id, owner_id)
+    if project_id is not None and unmatched_only:
+        raise HTTPException(status_code=422, detail="项目与未匹配筛选不能同时指定")
     filters = [RecommendationItem.run_id == run.id]
     if decision != "ANY":
         filters.append(RecommendationItem.decision == decision)
     if usable_answer_state != "ANY":
         filters.append(RecommendationItem.usable_answer_state == usable_answer_state)
+    if project_id is not None:
+        filters.append(cast(RecommendationItem.project_matches, JSONB).contains([{"project_id": str(project_id)}]))
+    if unmatched_only:
+        filters.extend([
+            RecommendationItem.decision == "INCLUDED",
+            cast(RecommendationItem.project_matches, JSONB) == [],
+        ])
     if q and q.strip():
         pattern = f"%{q.strip()}%"
         filters.append(

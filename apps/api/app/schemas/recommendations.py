@@ -5,6 +5,8 @@ from uuid import UUID
 
 from app.schemas.common import APIModel
 from app.schemas.sources import SourceStatistics
+from app.schemas.profiles import ProfileProjectView
+from pydantic import Field
 
 
 class RecommendationRunCreate(APIModel):
@@ -27,6 +29,14 @@ class RecommendationSkillSnapshot(APIModel):
 class RecommendationProfileSnapshot(APIModel):
     target_role: str | None
     skills: list[RecommendationSkillSnapshot]
+    projects: list[ProfileProjectView] = Field(default_factory=list)
+    project_matching_version: str | None = None
+
+
+class ProjectMatchView(APIModel):
+    project_id: UUID
+    project_name: str
+    matched_topics: list[str]
 
 
 class RecommendationRuleSnapshot(APIModel):
@@ -74,6 +84,7 @@ class RecommendationItemView(APIModel):
     reason_codes: list[str]
     reasons: list[str]
     source_statistics: SourceStatistics | None = None
+    project_matches: list[ProjectMatchView] | None = None
 
 
 class RecommendationItemPage(APIModel):

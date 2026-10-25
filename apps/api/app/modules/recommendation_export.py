@@ -103,6 +103,15 @@ def render_prep_package(
         elif item.answer_state == "SOURCE_ANSWER":
             sections.append("> 来源答案当前不适用，未导出答案正文。")
         sections.append(_sources(item))
+        if item.project_matches:
+            sections.append("### 项目关联建议（清单快照）\n\n" + "\n".join(
+                f"- {_inline(match['project_name'])} · 共有主题：{'、'.join(_inline(topic) for topic in match['matched_topics'])}"
+                for match in item.project_matches
+            ))
+        elif item.project_matches is None:
+            sections.append("项目关联：历史清单未记录")
+        else:
+            sections.append("项目关联：未匹配项目，可作通用复习。")
         if include_notes and item.question_id is not None and (note := notes.get(item.question_id)):
             sections.extend(["### 导出时的个人备注", note.strip()])
     return "\n\n".join(sections) + "\n"

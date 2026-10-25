@@ -106,6 +106,7 @@ def _profile_view(db: Session, profile: UserProfile) -> ProfileView:
             ProfileSkillView.model_validate(item)
             for item in sorted(skills, key=lambda skill: (skill.category, skill.display_name))
         ],
+        projects=current.projects if current is not None else [],
         created_at=profile.created_at,
         updated_at=profile.updated_at,
     )

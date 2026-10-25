@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -68,13 +69,18 @@ def create_profile_snapshot(
     target_role: str | None,
     skills: list[SkillSnapshot],
     resume_asset_version_id: UUID | None,
+    projects: list[dict] | None = None,
 ) -> ProfileVersion:
+    if projects is None:
+        current = current_profile_version(db, profile)
+        projects = current.projects if current is not None else []
     next_version = profile.current_version + 1
     version = ProfileVersion(
         profile_id=profile.id,
         version=next_version,
         resume_asset_version_id=resume_asset_version_id,
         target_role=target_role,
+        projects=deepcopy(projects),
     )
     version.skills = [
         ProfileSkill(
@@ -234,6 +240,21 @@ def process_profile_extraction(
         ]:
             validated[candidate.canonical_name] = candidate
 
+    projects = []
+    project_names = set()
+    for project in extracted.projects:
+        if project.evidence not in content or project.name not in project.evidence:
+            validation_failures += 1
+            continue
+        if project.name.casefold() in project_names:
+            continue
+        project_names.add(project.name.casefold())
+        projects.append({
+            "id": str(uuid4()), "name": project.name, "description": project.evidence,
+            "evidence": project.evidence, "source": "MODEL", "review_status": "PENDING",
+            "resume_asset_version_id": str(asset_version_id),
+        })
+
     with SessionLocal() as db:
         profile = db.scalar(
             select(UserProfile).where(UserProfile.id == profile_id).with_for_update()
@@ -250,6 +271,7 @@ def process_profile_extraction(
             target_role=target_role,
             skills=list(validated.values()),
             resume_asset_version_id=asset_version_id,
+            projects=projects,
         )
         profile.model = model_config.model
         profile.extraction_status = (
@@ -257,7 +279,7 @@ def process_profile_extraction(
         )
         profile.error_code = "PROFILE_SOURCE_MISMATCH" if validation_failures else None
         profile.error_message = (
-            f"有 {validation_failures} 个候选无法回指简历原文，其他技能已保留"
+            f"有 {validation_failures} 个候选无法回指简历原文，其他有效技能和项目已保留"
             if validation_failures
             else None
         )
