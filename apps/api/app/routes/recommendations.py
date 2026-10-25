@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime, timezone
 from typing import Literal
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -19,6 +22,7 @@ from app.models import (
     PreferenceRule,
     ProfileVersion,
     Question,
+    QuestionNote,
     QuestionOccurrence,
     RecommendationItem,
     RecommendationRun,
@@ -31,6 +35,7 @@ from app.modules.recommendation_service import (
     build_recommendation,
 )
 from app.modules.question_identity import question_identity
+from app.modules.recommendation_export import render_prep_package
 from app.modules.source_statistics import question_source_statistics
 from app.schemas.recommendations import (
     RecommendationItemPage,
@@ -406,3 +411,40 @@ def list_recommendation_items(
         answered_count=run.answered_count,
         missing_count=run.missing_count,
     )
+
+
+@router.get("/{run_id}/export", response_class=Response)
+def export_recommendation_run(
+    run_id: UUID,
+    include_notes: bool = Query(default=False, alias="includeNotes"),
+    db: Session = Depends(get_db),
+    owner_id: UUID = Depends(get_current_user_id),
+) -> Response:
+    run = _owned_run(db, run_id, owner_id)
+    items = db.scalars(select(RecommendationItem).where(
+        RecommendationItem.run_id == run.id,
+        RecommendationItem.decision == "INCLUDED",
+    ).order_by(RecommendationItem.position)).all()
+    if not items:
+        raise HTTPException(status_code=409, detail="这份清单没有可导出的题目")
+    notes = {}
+    if include_notes:
+        # Join the owned run rather than a large IN list; both note and question must be owned.
+        notes = dict(db.execute(
+            select(QuestionNote.question_id, QuestionNote.content)
+            .join(Question, Question.id == QuestionNote.question_id)
+            .join(RecommendationItem, RecommendationItem.question_id == Question.id)
+            .where(
+                QuestionNote.owner_id == owner_id, Question.owner_id == owner_id,
+                RecommendationItem.run_id == run.id, RecommendationItem.decision == "INCLUDED",
+            )
+        ).all())
+    content = render_prep_package(
+        _run_view(db, run, owner_id), items,
+        exported_at=datetime.now(timezone.utc), notes=notes, include_notes=include_notes,
+    )
+    filename = f"面试备考包-{str(run.id)[:8]}.md"
+    return Response(content=content, media_type="text/markdown", headers={
+        "Content-Disposition": f"attachment; filename=\"interview-prep-{run.id}.md\"; filename*=UTF-8''{quote(filename)}",
+        "Cache-Control": "no-store",
+    })
