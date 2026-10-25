@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Drawer, Empty, Input, Pagination, Radio, Skeleton, Space, Typography } from 'antd'
+import { Alert, Button, Drawer, Empty, Input, Pagination, Radio, Select, Skeleton, Space, Typography } from 'antd'
 import { useState } from 'react'
 
 import {
@@ -25,6 +25,7 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
   const [answerState, setAnswerState] = useState<'ANY' | UsableAnswerState>('ANY')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
+  const [projectFilter, setProjectFilter] = useState('ANY')
 
   const latest = useQuery({
     queryKey: ['recommendation-run', 'latest'],
@@ -32,7 +33,7 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
     enabled: open,
   })
   const items = useQuery({
-    queryKey: ['recommendation-items', latest.data?.id, decision, answerState, search, page],
+    queryKey: ['recommendation-items', latest.data?.id, decision, answerState, search, page, projectFilter],
     queryFn: () =>
       fetchRecommendationItems(latest.data!.id, {
         decision,
@@ -40,12 +41,16 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
         q: search,
         page,
         pageSize: 20,
+        projectId: !['ANY', 'UNMATCHED'].includes(projectFilter) ? projectFilter : undefined,
+        unmatchedOnly: projectFilter === 'UNMATCHED',
       }),
     enabled: open && Boolean(latest.data?.id),
   })
   const generate = useMutation({
     mutationFn: createRecommendationRun,
     onSuccess: async () => {
+      setPage(1)
+      setProjectFilter('ANY')
       await queryClient.invalidateQueries({ queryKey: ['recommendation-run'] })
       await queryClient.invalidateQueries({ queryKey: ['recommendation-items'] })
       notify('success', '个性化复习清单已生成')
@@ -89,7 +94,7 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
               className="recommendation-alert"
               type="warning"
               showIcon
-              title="画像、偏好或题库内容已经变化"
+              title="画像、偏好、题库或关联规则已经变化"
               description="当前展示的是历史结果，请重新生成后再按最新条件复习。"
             />
           )}
@@ -119,7 +124,25 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
             <RecommendationExportButton key={run.id} run={run} notify={notify} />
           </Typography.Paragraph>
 
+          {run.profileSnapshot.projects.length === 0 && (
+            <Typography.Paragraph type="secondary">
+              这份清单没有项目记录，可在“我的画像 → 我的项目”中补充并确认，再重新生成。现有通用题仍然保留。
+            </Typography.Paragraph>
+          )}
+
           <div className="recommendation-filters">
+            <Select
+              aria-label="按关联项目筛选"
+              value={projectFilter}
+              style={{ width: '100%' }}
+              onChange={(value) => { setPage(1); setProjectFilter(value) }}
+              options={[
+                { value: 'ANY', label: '全部项目与通用题' },
+                { value: 'UNMATCHED', label: '未匹配项目／通用复习' },
+                ...run.profileSnapshot.projects.filter((project) => project.reviewStatus === 'CONFIRMED').map((project) => ({ value: project.id, label: project.name })),
+              ]}
+              disabled={!run.profileSnapshot.projectMatchingVersion}
+            />
             <Radio.Group
               value={decision}
               optionType="button"
@@ -158,6 +181,7 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
             />
           </div>
 
+          {items.data && <Typography.Paragraph type="secondary">当前筛选共 {items.data.total} 题</Typography.Paragraph>}
           {items.isLoading && <Skeleton active />}
           {items.isError && <Alert type="error" showIcon title={items.error.message} />}
           {items.data?.items.length === 0 && (

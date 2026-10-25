@@ -21,6 +21,7 @@ import {
   Upload,
 } from 'antd'
 import { useMemo, useState } from 'react'
+import { ProfileProjects } from './ProfileProjects'
 import {
   createPreferenceRule,
   createProfileSkill,
@@ -180,7 +181,7 @@ export function ProfileDrawer({ open, onClose, notify }: ProfileDrawerProps) {
     mutationFn: startProfileExtraction,
     onSuccess: (next) => {
       updateProfileCache(next)
-      notify('success', '已开始从简历提取技能画像')
+      notify('success', '已开始从简历提取技能和项目画像')
     },
     onError: reportError,
   })
@@ -380,6 +381,9 @@ export function ProfileDrawer({ open, onClose, notify }: ProfileDrawerProps) {
                       {extractionLabels[profile.data.extractionStatus]}
                     </Typography.Text>
                   </div>
+                  <Typography.Paragraph type="secondary">
+                    重新提取会创建新的待确认技能和项目，请核对后使用；只需补充项目时，可直接在“我的项目”中添加。
+                  </Typography.Paragraph>
                   {profile.data.errorMessage && (
                     <Alert
                       className="profile-inline-alert"
@@ -390,7 +394,7 @@ export function ProfileDrawer({ open, onClose, notify }: ProfileDrawerProps) {
                   )}
                 </Card>
               ) : (
-                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="上传简历后可提取技能和目标岗位" />
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="上传简历后可提取技能、目标岗位和项目" />
               )}
             </section>
 
@@ -457,14 +461,16 @@ export function ProfileDrawer({ open, onClose, notify }: ProfileDrawerProps) {
             </section>
 
             <Divider />
+            <ProfileProjects profile={profile.data} disabled={profileLocked} notify={notify} />
+            <Divider />
             <section aria-labelledby="rules-heading">
-              <Typography.Title id="rules-heading" level={4}>4. 全局筛选偏好</Typography.Title>
+              <Typography.Title id="rules-heading" level={4}>5. 全局筛选偏好</Typography.Title>
               <Alert
                 className="profile-rule-hint"
                 type="info"
                 showIcon
                 title="这里保存你的长期偏好"
-                description="例如排除 MySQL、优先 Python。规则将在 P3-5 的个性化题目筛选中正式生效。"
+                description="例如排除 MySQL、优先 Python。规则在生成个性化清单时生效，项目关联继续遵循这些筛选结果。"
               />
               <Form<RuleFormValue>
                 form={ruleForm}

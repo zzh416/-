@@ -314,6 +314,16 @@ export interface ProfileSkill {
   source: 'MODEL' | 'USER'
 }
 
+export interface ProfileProject {
+  id: string
+  name: string
+  description: string
+  reviewStatus: SkillReviewStatus
+  source: 'MODEL' | 'USER'
+  evidence: string | null
+  resumeAssetVersionId: string | null
+}
+
 export interface UserProfile {
   id: string
   version: number
@@ -325,6 +335,7 @@ export interface UserProfile {
   errorMessage: string | null
   resume: AssetSummary | null
   skills: ProfileSkill[]
+  projects: ProfileProject[]
   createdAt: string
   updatedAt: string
 }
@@ -370,6 +381,8 @@ export interface RecommendationRun {
   profileVersion: number
   profileSnapshot: {
     targetRole: string | null
+    projects: ProfileProject[]
+    projectMatchingVersion: string | null
     skills: Array<{
       canonicalName: string
       displayName: string
@@ -414,6 +427,7 @@ export interface RecommendationItem {
   reasonCodes: string[]
   reasons: string[]
   sourceStatistics: SourceStatistics | null
+  projectMatches: Array<{ projectId: string; projectName: string; matchedTopics: string[] }> | null
 }
 
 export interface RecommendationItemPage {
@@ -665,6 +679,22 @@ export const deleteQuestion = (questionId: string) =>
 
 export const fetchProfile = () => apiRequest<UserProfile>('/api/v1/profiles/me')
 
+interface ProfileProjectWrite {
+  name: string
+  description: string
+  reviewStatus: SkillReviewStatus
+  expectedVersion: number
+}
+
+export const createProfileProject = (input: ProfileProjectWrite) =>
+  apiRequest<UserProfile>('/api/v1/profiles/me/projects', jsonRequest('POST', input))
+
+export const updateProfileProject = (id: string, input: ProfileProjectWrite) =>
+  apiRequest<UserProfile>(`/api/v1/profiles/me/projects/${id}`, jsonRequest('PUT', input))
+
+export const deleteProfileProject = (id: string, expectedVersion: number) =>
+  apiRequest<UserProfile>(`/api/v1/profiles/me/projects/${id}?expectedVersion=${expectedVersion}`, { method: 'DELETE' })
+
 export const uploadResume = (file: File) => {
   const form = new FormData()
   form.append('file', file)
@@ -753,6 +783,8 @@ export const fetchRecommendationItems = (
   input: {
     decision?: 'ANY' | RecommendationDecision
     usableAnswerState?: 'ANY' | UsableAnswerState
+    projectId?: string
+    unmatchedOnly?: boolean
     q?: string
     page?: number
     pageSize?: number
@@ -761,6 +793,8 @@ export const fetchRecommendationItems = (
   const params = new URLSearchParams()
   if (input.decision) params.set('decision', input.decision)
   if (input.usableAnswerState) params.set('usableAnswerState', input.usableAnswerState)
+  if (input.projectId) params.set('projectId', input.projectId)
+  if (input.unmatchedOnly) params.set('unmatchedOnly', 'true')
   if (input.q) params.set('q', input.q)
   params.set('page', String(input.page ?? 1))
   params.set('pageSize', String(input.pageSize ?? 20))

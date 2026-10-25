@@ -47,6 +47,18 @@ export function RecommendationItemCard({ item }: RecommendationItemCardProps) {
       <SafeMarkdown className="recommendation-question">{item.prompt}</SafeMarkdown>
       <SourceStatistics statistics={item.sourceStatistics} />
 
+      {item.decision === 'INCLUDED' && (
+        item.projectMatches === null ? <Typography.Paragraph type="secondary">历史清单未记录项目关联，重新生成后可查看。</Typography.Paragraph>
+          : item.projectMatches.length === 0 ? <Typography.Paragraph type="secondary">未匹配项目，可作通用复习。</Typography.Paragraph>
+            : <details className="question-source-statistics">
+              <summary>项目关联建议（{item.projectMatches.length}）</summary>
+              <ul>{item.projectMatches.map((match) => <li key={match.projectId}>
+                <Typography.Text strong>{match.projectName}</Typography.Text> · 题干与项目共有主题：{match.matchedTopics.join('、')}
+              </li>)}</ul>
+              <Typography.Text type="secondary">按共有技术词给出的复习建议，未改变原筛选结果。</Typography.Text>
+            </details>
+      )}
+
       {item.answerContent && item.decision === 'INCLUDED' && (
         <div className={answerUnavailable ? 'recommendation-answer is-unavailable' : 'recommendation-answer'}>
           <Typography.Text strong>资料答案</Typography.Text>
