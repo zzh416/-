@@ -37,7 +37,7 @@ import {
   fetchCollections,
   fetchHealth,
   fetchQuestions,
-  fetchQuestionExtractionRun,
+  fetchLatestAssetExtractionRun,
   reviseAsset,
   retryAsset,
   retryQuestionExtractionRun,
@@ -54,6 +54,9 @@ import { SafeMarkdown } from './components/SafeMarkdown'
 import { ExtractionReviewDrawer } from './components/ExtractionReviewDrawer'
 import { ProfileDrawer } from './components/ProfileDrawer'
 import { RecommendationDrawer } from './components/RecommendationDrawer'
+import { SourceStatistics } from './components/SourceStatistics'
+import { AssetSourceMetadata } from './components/AssetSourceMetadata'
+import { ExtractionQualityPanel } from './components/ExtractionQualityPanel'
 
 interface CollectionForm {
   name: string
@@ -205,9 +208,9 @@ function App() {
     enabled: Boolean(activeCollectionId),
   })
   const extractionRun = useQuery({
-    queryKey: ['question-extraction-run', extractionRunId],
-    queryFn: () => fetchQuestionExtractionRun(extractionRunId!),
-    enabled: Boolean(extractionRunId),
+    queryKey: ['question-extraction-run', selectedAssetId, assetDetail.data?.currentVersion, extractionRunId],
+    queryFn: () => fetchLatestAssetExtractionRun(selectedAssetId!),
+    enabled: Boolean(selectedAssetId),
     refetchInterval: (query) =>
       query.state.data && ['QUEUED', 'PROCESSING'].includes(query.state.data.status)
         ? 2_000
@@ -310,6 +313,7 @@ function App() {
     mutationFn: createQuestionExtractionRun,
     onSuccess: (run) => {
       setExtractionRunId(run.id)
+      void queryClient.invalidateQueries({ queryKey: ['question-extraction-run'] })
       reportedExtractionRunId.current = null
       messageApi.success('已提交自动整理任务；只提取原文已有的题目和答案')
     },
@@ -319,7 +323,7 @@ function App() {
     mutationFn: retryQuestionExtractionRun,
     onSuccess: (run) => {
       setExtractionRunId(run.id)
-      queryClient.setQueryData(['question-extraction-run', run.id], run)
+      void queryClient.invalidateQueries({ queryKey: ['question-extraction-run'] })
       reportedExtractionRunId.current = null
       messageApi.success('已重新提交自动整理任务；已复核和人工修改的内容会保留')
     },
@@ -392,7 +396,7 @@ function App() {
 
   useEffect(() => {
     const run = extractionRun.data
-    if (!run || run.id === reportedExtractionRunId.current) return
+    if (!run || run.id !== extractionRunId || run.id === reportedExtractionRunId.current) return
     if (run.status === 'SUCCEEDED' || run.status === 'PARTIAL_SUCCESS') {
       reportedExtractionRunId.current = run.id
       void queryClient.invalidateQueries({ queryKey: ['questions'] })
@@ -403,7 +407,7 @@ function App() {
       reportedExtractionRunId.current = run.id
       messageApi.error(run.errorMessage ?? '自动整理失败')
     }
-  }, [extractionRun.data, messageApi, queryClient])
+  }, [extractionRun.data, extractionRunId, messageApi, queryClient])
 
   function openQuestionCreate(chunkId?: string) {
     setSourceChunkId(chunkId ?? null)
@@ -607,6 +611,7 @@ function App() {
               </Tag>
             </div>
             <SafeMarkdown className="question-text">{question.prompt}</SafeMarkdown>
+            <SourceStatistics statistics={question.sourceStatistics} />
             <Divider plain>
               答案
             </Divider>
@@ -953,6 +958,11 @@ function App() {
                 )}
               </Typography.Paragraph>
             )}
+            <AssetSourceMetadata
+              key={`${assetDetail.data.id}-${assetDetail.data.sourceMetadataVersion}`}
+              asset={assetDetail.data}
+              notify={(kind, text) => { if (kind === 'success') messageApi.success(text); else messageApi.error(text) }}
+            />
             {assetDetail.data.originalFilename && (
               <Typography.Paragraph className="source-metadata" type="secondary">
                 原文件：{assetDetail.data.originalFilename}
@@ -1019,14 +1029,14 @@ function App() {
                   <Space orientation="vertical" align="start">
                     <span>
                       {extractionRun.data.status === 'PARTIAL_SUCCESS'
-                        ? `已保存 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。${extractionRun.data.errorMessage ?? '部分内容未能识别'}。结果均为待复核。`
+                        ? `原始提取 ${extractionRun.data.questionCount} 条记录：${extractionRun.data.answeredCount} 条有答案，${extractionRun.data.missingCount} 条无答案。${extractionRun.data.errorMessage ?? '部分内容未能识别'}。当前复核状态见下方质量概览。`
                         : extractionRun.data.status === 'SUCCEEDED'
-                          ? `共 ${extractionRun.data.questionCount} 道：${extractionRun.data.answeredCount} 道有答案，${extractionRun.data.missingCount} 道无答案。结果均为待复核。`
+                          ? `原始提取 ${extractionRun.data.questionCount} 条记录：${extractionRun.data.answeredCount} 条有答案，${extractionRun.data.missingCount} 条无答案。当前复核状态见下方质量概览。`
                           : extractionRun.data.errorMessage ?? '系统只会提取原文已有内容，不会生成缺失答案。'}
                     </span>
                     {['SUCCEEDED', 'PARTIAL_SUCCESS'].includes(extractionRun.data.status) && (
                       <Button type="primary" size="small" onClick={() => setReviewOpen(true)}>
-                        对照原文复核
+                        查看质量与原文复核
                       </Button>
                     )}
                     {['FAILED', 'PARTIAL_SUCCESS', 'WAITING_FOR_CONFIGURATION'].includes(
@@ -1045,6 +1055,10 @@ function App() {
                 }
               />
             )}
+            {extractionRun.data?.assetId === assetDetail.data.id &&
+              !['QUEUED', 'PROCESSING'].includes(extractionRun.data.status) && (
+                <ExtractionQualityPanel key={`${extractionRun.data.id}-${extractionRun.data.updatedAt}`} runId={extractionRun.data.id} />
+              )}
             {(assetDetail.data.job?.unitFailures.length ?? 0) > 0 && (
               <div className="unit-failures" role="status">
                 <Typography.Text strong>尚未识别的位置</Typography.Text>
@@ -1092,8 +1106,9 @@ function App() {
       </Drawer>
 
       <ExtractionReviewDrawer
+        key={extractionRun.data?.id ?? 'no-run'}
         open={isReviewOpen}
-        runId={extractionRunId}
+        runId={extractionRun.data?.id ?? null}
         chunks={assetDetail.data?.chunks ?? []}
         onClose={() => setReviewOpen(false)}
         onQuestionsChanged={() => {

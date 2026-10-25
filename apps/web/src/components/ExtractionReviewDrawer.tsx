@@ -36,6 +36,7 @@ import {
   type TextChunk,
 } from '../api/client'
 import { ExtractionReviewCard } from './ExtractionReviewCard'
+import { ExtractionQualitySummary } from './ExtractionQualityPanel'
 
 type Selection =
   | { kind: 'item'; value: ExtractionReviewItem }
@@ -129,6 +130,7 @@ export function ExtractionReviewDrawer({
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['extraction-review', runId] })
+    await queryClient.invalidateQueries({ queryKey: ['recommendation-run'] })
     onQuestionsChanged()
   }
 
@@ -269,6 +271,7 @@ export function ExtractionReviewDrawer({
         title="左侧核对原文，右侧确认题答"
         description="黄色项目是系统根据问号、标题和常见问句模式发现的疑似漏题，只是辅助提示，可能包含普通章节标题。"
       />
+      {review.data && <ExtractionQualitySummary quality={review.data.quality} />}
       <div className="review-layout">
         <section className="review-source-pane" aria-label="来源原文">
           <Typography.Title level={4}>来源原文</Typography.Title>
@@ -294,7 +297,7 @@ export function ExtractionReviewDrawer({
                   <Tag color="gold">待复核 {review.data.pendingCount}</Tag>
                   <Tag color="green">已确认 {review.data.confirmedCount}</Tag>
                   <Tag color="red">已拒绝 {review.data.rejectedCount}</Tag>
-                  <Tag color="orange">疑似漏题 {review.data.suspectedMisses.length}</Tag>
+                  <Tag color="orange">疑似漏题 {review.data.quality.suspectedMissesTruncated ? '至少 ' : ''}{review.data.suspectedMisses.length}</Tag>
                 </Space>
               </div>
               <Tabs

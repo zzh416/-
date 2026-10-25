@@ -850,3 +850,15 @@ textarea {
     min-width: 0;
   }
 }
+/* Source statistics and extraction quality use the existing compact reading layout. */
+.question-source-statistics { margin-block: 12px; color: var(--text-secondary, #596579); }
+.question-source-statistics summary { cursor: pointer; padding-block: 6px; }
+.question-source-statistics summary:focus-visible { outline: 2px solid #1677ff; outline-offset: 3px; }
+.question-source-statistics ul { padding-inline-start: 22px; }
+.question-source-statistics li { margin-block: 8px; overflow-wrap: anywhere; }
+.asset-source-metadata { margin-block: 16px; }
+.asset-source-metadata input[type="date"] { width: 170px; }
+.extraction-quality-panel { margin-block: 16px; padding: 16px; background: #f7f9fc; border: 1px solid #e6eaf0; border-radius: 8px; }
+.extraction-quality-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; margin-block: 12px; }
+.extraction-quality-metrics dt { color: #596579; font-size: 13px; }
+.extraction-quality-metrics dd { font-size: 22px; font-weight: 600; margin: 4px 0 0; }

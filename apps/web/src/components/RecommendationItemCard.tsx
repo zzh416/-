@@ -2,6 +2,7 @@ import { Alert, Card, Space, Tag, Typography } from 'antd'
 
 import type { RecommendationItem } from '../api/client'
 import { SafeMarkdown } from './SafeMarkdown'
+import { SourceStatistics } from './SourceStatistics'
 
 
 interface RecommendationItemCardProps {
@@ -44,6 +45,7 @@ export function RecommendationItemCard({ item }: RecommendationItemCardProps) {
       </div>
 
       <SafeMarkdown className="recommendation-question">{item.prompt}</SafeMarkdown>
+      <SourceStatistics statistics={item.sourceStatistics} />
 
       {item.answerContent && item.decision === 'INCLUDED' && (
         <div className={answerUnavailable ? 'recommendation-answer is-unavailable' : 'recommendation-answer'}>

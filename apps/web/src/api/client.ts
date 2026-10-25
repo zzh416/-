@@ -69,6 +69,8 @@ export interface AssetSummary {
   contentType: string | null
   byteSize: number | null
   fetchedAt: string | null
+  sourceDate: string | null
+  sourceMetadataVersion: number
   status: AssetStatus
   currentVersion: number
   job: IngestionJob | null
@@ -129,6 +131,27 @@ export interface Question {
   note: QuestionNote | null
   createdAt: string
   updatedAt: string
+  sourceStatistics: SourceStatistics
+}
+
+export interface QuestionSource {
+  assetId: string
+  title: string
+  sourceUrl: string | null
+  purpose: CollectionPurpose
+  sourceDate: string | null
+  duplicateAssetCount: number
+}
+
+export interface SourceStatistics {
+  sourceCount: number
+  interviewSourceCount: number
+  knowledgeSourceCount: number
+  occurrenceCount: number
+  recentInterviewSourceCount: number
+  unknownDateSourceCount: number
+  latestSourceDate: string | null
+  sources: QuestionSource[]
 }
 
 export interface QuestionPage {
@@ -236,6 +259,29 @@ export interface ExtractionReviewPage {
   confirmedCount: number
   rejectedCount: number
   suspectedMisses: SuspectedMiss[]
+  quality: ExtractionQuality
+}
+
+export interface ExtractionQuality {
+  occurrenceCount: number
+  uniqueQuestionCount: number
+  activeQuestionCount: number
+  pendingCount: number
+  confirmedCount: number
+  rejectedCount: number
+  sourceAnsweredCount: number
+  sourceMissingCount: number
+  suspectedMissCount: number
+  suspectedMissesTruncated: boolean
+  isCurrentVersion: boolean
+  diagnostics: {
+    plannedBatchCount: number
+    completedBatchCount: number
+    failedBatchCount: number
+    modelCandidateCount: number
+    invalidSourceCount: number | null
+    duplicateRangeCount: number | null
+  } | null
 }
 
 export interface ExtractionReviewBulkResult {
@@ -367,6 +413,7 @@ export interface RecommendationItem {
   answerTechnologies: RecommendationTechnology[]
   reasonCodes: string[]
   reasons: string[]
+  sourceStatistics: SourceStatistics | null
 }
 
 export interface RecommendationItemPage {
@@ -433,6 +480,9 @@ export const fetchAssets = (collectionId: string) =>
 export const fetchAsset = (assetId: string) =>
   apiRequest<AssetDetail>(`/api/v1/assets/${assetId}`)
 
+export const updateAssetSourceMetadata = (assetId: string, input: { sourceDate: string | null; expectedVersion: number }) =>
+  apiRequest<AssetSummary>(`/api/v1/assets/${assetId}/source-metadata`, jsonRequest('PUT', input))
+
 export const createTextAsset = (
   collectionId: string,
   input: { title: string; content: string; sourceFormat: 'PASTED_TEXT' | 'MARKDOWN' },
@@ -472,6 +522,9 @@ export const createQuestionExtractionRun = (assetId: string) =>
 
 export const fetchQuestionExtractionRun = (runId: string) =>
   apiRequest<QuestionExtractionRun>(`/api/v1/question-extraction-runs/${runId}`)
+
+export const fetchLatestAssetExtractionRun = (assetId: string) =>
+  apiRequest<QuestionExtractionRun | null>(`/api/v1/assets/${assetId}/question-extraction-runs/latest`)
 
 export const retryQuestionExtractionRun = (runId: string) =>
   apiRequest<QuestionExtractionRun>(`/api/v1/question-extraction-runs/${runId}/retry`, {
