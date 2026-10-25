@@ -1,8 +1,9 @@
 """应用配置：从环境变量 / .env 读取。"""
 from functools import lru_cache
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
@@ -17,6 +18,16 @@ class Settings(BaseSettings):
     app_name: str = "面经综合助手"
     environment: str = "development"
     log_level: str = "INFO"
+    app_timezone: str = "Asia/Shanghai"
+
+    @field_validator("app_timezone")
+    @classmethod
+    def timezone_must_exist(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("APP_TIMEZONE 必须是有效时区，如 Asia/Shanghai 或 UTC") from exc
+        return value
 
     # 数据库与缓存
     database_url: str | None = None

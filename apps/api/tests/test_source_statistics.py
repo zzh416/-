@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
@@ -195,3 +195,37 @@ def test_source_identity_keeps_content_queries_fragments_and_technology_names():
     a.source_url = "https://example.com/article?id=1&utm_source=feed"
     b.source_url = "https://example.com/article?id=2&utm_source=feed"
     assert source_identity(a) != source_identity(b)
+
+
+def test_source_dates_use_configured_local_calendar_at_utc_midnight(owner, monkeypatch):
+    from app.config import settings
+    from app.modules import source_calendar
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 10, 24, 18, 0, tzinfo=timezone.utc)
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(settings, "app_timezone", "Asia/Shanghai")
+    monkeypatch.setattr(source_calendar, "datetime", Clock)
+    with SessionLocal() as db:
+        question, asset, _ = add_source(db, owner)
+        db.commit()
+        question_id, asset_id = str(question.id), str(asset.id)
+    response = client.put(f"/api/v1/assets/{asset_id}/source-metadata", json={"sourceDate": "2026-10-25", "expectedVersion": 1})
+    assert response.status_code == 200, response.text
+    stats = client.get(f"/api/v1/questions/{question_id}/sources").json()
+    assert stats["recentInterviewSourceCount"] == 1
+    assert client.put(f"/api/v1/assets/{asset_id}/source-metadata", json={"sourceDate": "2026-10-26", "expectedVersion": 2}).status_code == 422
+    monkeypatch.setattr(settings, "app_timezone", "UTC")
+    assert source_calendar.local_today() == date(2026, 10, 24)
+    assert client.get(f"/api/v1/questions/{question_id}/sources").json()["recentInterviewSourceCount"] == 0
+
+
+def test_invalid_source_calendar_timezone_is_rejected():
+    from app.config import Settings
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="APP_TIMEZONE"):
+        Settings(app_timezone="Invalid/Timezone")

@@ -1,6 +1,6 @@
 """Aggregate current, non-rejected sources across exact-equivalent questions."""
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import UUID
 
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Asset, AssetVersion, Collection, Question, QuestionExtractionRun, QuestionOccurrence, TextChunk
 from app.modules.question_identity import question_identity
+from app.modules.source_calendar import local_today
 from app.schemas.sources import QuestionSourceView, SourceStatistics
 
 
@@ -73,7 +74,7 @@ def question_source_statistics(db: Session, owner_id: UUID, questions: list[Ques
     for question, asset, collection in manual_rows:
         add(question.id, asset, collection, (asset.id, question.source_chunk_id, question.id))
 
-    today = datetime.now(timezone.utc).date()
+    today = local_today()
     summaries = {}
     for identity in requested:
         sources = []

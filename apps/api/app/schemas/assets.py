@@ -1,11 +1,12 @@
 """文字资料导入与版本响应。"""
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
 from pydantic import Field, field_validator
 
 from app.schemas.common import APIModel
+from app.modules.source_calendar import local_today
 
 SourceFormat = Literal[
     "PASTED_TEXT",
@@ -68,7 +69,7 @@ class AssetSourceMetadataUpdate(APIModel):
     @field_validator("source_date")
     @classmethod
     def date_cannot_be_in_future(cls, value: date | None) -> date | None:
-        if value is not None and value > datetime.now(timezone.utc).date():
+        if value is not None and value > local_today():
             raise ValueError("资料日期不能晚于今天")
         return value
 

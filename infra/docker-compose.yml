@@ -96,6 +96,7 @@ services:
     read_only: true
     environment:
       ENVIRONMENT: production
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
       HOME: /tmp
       XDG_CACHE_HOME: /tmp/.cache
       POSTGRES_HOST: postgres
@@ -164,6 +165,7 @@ services:
     read_only: true
     environment:
       ENVIRONMENT: production
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Shanghai}
       HOME: /tmp
       XDG_CACHE_HOME: /tmp/.cache
       POSTGRES_HOST: postgres
