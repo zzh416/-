@@ -55,6 +55,18 @@ export interface InterviewSession {
   model: string | null
   jobStage: string
   canRetry: boolean
+  planAttempts: number
+  planningDiagnostics: {
+    targetCount: number
+    acceptedCount: number
+    modelCalls: number
+    returnedCount: number
+    formatIssueCount: number
+    rejectionCounts: Record<string, number>
+    errors: string[]
+    schemaPaths: string[]
+    exhausted: boolean
+  } | null
   createdAt: string
 }
 

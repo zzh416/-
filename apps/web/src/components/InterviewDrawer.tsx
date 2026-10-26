@@ -10,6 +10,7 @@ import { SafeMarkdown } from './SafeMarkdown'
 import { InterviewLearningCandidates } from './InterviewLearningCandidates'
 import { InterviewSetup } from './InterviewSetup'
 import { sourceLabels } from './interviewSources'
+import { InterviewPlanningDetails } from './InterviewPlanningDetails'
 
 interface Props { open: boolean; onClose: () => void; notify: (kind: 'success' | 'error', text: string) => void; initialSessionId?: string; onOpenProfile: () => void }
 const labels: Record<InterviewSession['status'], string> = { PLANNING: 'AI 正在出题', PLAN_FAILED: '出题失败', READY: '计划已准备', ACTIVE: '正在作答', PAUSED: '已暂停', REVIEWING: '生成反馈', AWAITING_NEXT: '等待选择下一步', COMPLETED: '本轮结束' }
@@ -47,8 +48,12 @@ export function InterviewDrawer({ open, onClose, notify, initialSessionId, onOpe
         {!session.isCurrent && <Alert type="warning" title="本轮依据已变化，记录仍保留；请结束后重新建立面试。" />}
         {session.notice && <Alert type="info" showIcon title={session.notice} />}
         {session.planningError && <Alert type="warning" showIcon title={session.planningError} />}
+        <InterviewPlanningDetails session={session} />
         {['PLANNING', 'PLAN_FAILED'].includes(session.status) && <Space wrap>{session.questionSource !== 'AI' && <Button loading={action.isPending} onClick={() => action.mutate('USE_BANK')}>改用已有题库清单</Button>}{session.canRetry && <Button loading={action.isPending} onClick={() => action.mutate('RETRY_PLAN')}>重试AI出题</Button>}</Space>}
         {session.status === 'READY' && <>
+          {session.questionSource !== 'BANK' && session.plan.length < session.questionCount && <Button
+            loading={action.isPending} disabled={!session.isCurrent || session.planAttempts >= 3}
+            onClick={() => action.mutate('SUPPLEMENT_PLAN')}>补足目标题数（{session.plan.length}/{session.questionCount}）</Button>}
           <Typography.Paragraph>已准备 {session.plan.length} 道基础题，追问由你逐次选择；点击开始后启动本题计时。</Typography.Paragraph>
           {session.mode === 'PREVIEW' && session.plan.map((item, index) => <Card key={item.id} size="small" title={`${index + 1}. ${item.kind === 'BANK' ? '题库已有题' : 'AI 自主题'}`}><SafeMarkdown>{item.prompt ?? ''}</SafeMarkdown><Typography.Paragraph type="secondary">{item.reason}</Typography.Paragraph>{item.skillBasis && <Typography.Text>技能依据：{item.skillBasis}</Typography.Text>}{item.projectName && <Typography.Text>项目依据：{item.projectName}</Typography.Text>}</Card>)}
           <Button type="primary" loading={action.isPending} onClick={() => action.mutate('START')}>开始逐题面试</Button>
