@@ -6,7 +6,7 @@ from uuid import uuid4
 
 def unknown_answer(text: str) -> bool:
     return bool(re.fullmatch(
-        r"(?:(?:这题|这个|这部分|这方面|我|目前|暂时|完全|确实)[，,：:\s]*)*(?:不(?:太)?(?:会|知道|了解|清楚|熟悉)|没(?:有)?(?:接触|了解|学|做)过?|答不上来)[。.!！?？\s]*", text.strip()))
+        r"(?:(?:这题|这个|这部分|这方面|我|目前|暂时|完全|确实)[，,：:\s]*)*(?:不(?:太)?(?:会|知道|了解|清楚|熟悉|懂)|没(?:有)?(?:接触|了解|学|做|用|听说|研究)过?|答不上来)[。.!！?？\s]*", text.strip()))
 
 
 def remaining(turn, now):
@@ -49,7 +49,7 @@ def submit(state, text, action, now):
     if state["status"] != "ACTIVE":
         raise ValueError("请先恢复面试，或等待当前回答处理完成")
     turn = state["turns"][-1]
-    turn["timed_out"] = remaining(turn, now) <= 0
+    turn["timed_out"] = turn["timed_out"] or remaining(turn, now) <= 0
     turn["remaining_seconds"] = remaining(turn, now)
     turn["elapsed_seconds"] = max(0, round(turn["allocated_seconds"] - turn["remaining_seconds"]))
     turn["deadline_at"] = None
@@ -93,6 +93,7 @@ def command(state, action, now, seconds=60):
     elif action == "EXTEND" and status in {"ACTIVE", "PAUSED"}:
         if turn["allocated_seconds"] + seconds > 900:
             raise ValueError("单题累计时长最多15分钟")
+        turn["timed_out"] = turn["timed_out"] or remaining(turn, now) <= 0
         turn["remaining_seconds"] = remaining(turn, now) + seconds
         turn["allocated_seconds"] += seconds
         if status == "ACTIVE":

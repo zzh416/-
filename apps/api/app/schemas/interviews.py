@@ -55,6 +55,7 @@ class FollowupView(APIModel):
     prompt: str
     answer_quote: str
     project_quote: str | None = None
+    question_quote: str | None = None
 
 
 class TurnView(PlanItemView):
@@ -75,6 +76,7 @@ class TurnView(PlanItemView):
     review_status: str
     review_attempts: int
     answer_quote: str | None = None
+    question_quote: str | None = None
 
 
 class InterviewView(APIModel):

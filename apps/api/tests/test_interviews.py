@@ -153,3 +153,31 @@ def test_followup_requires_explicit_choice_and_unknown_answer_ends_that_directio
     changed = client.post(path + "/answer", json={"expectedVersion": following["version"], "turnId": following["turns"][-1]["id"], "text": "", "action": "DONT_KNOW"}).json()
     assert changed["turns"][-1]["prompt"] == "Python 的 GIL 是什么？"
     assert len(context["calls"]) == calls
+
+
+def test_model_detected_blindness_also_changes_topic_without_offering_a_followup(context):
+    session = act(ready(context), "START").json()
+    path = f"/api/v1/interview-sessions/{session['id']}"
+    client.post(path + "/answer", json={"expectedVersion": session["version"], "turnId": session["turns"][-1]["id"], "text": "知道先检索，但没有真正用过重排。"})
+    process_interview(UUID(session["id"]), reviewer=lambda *args, **kwargs: InterviewReview(summary="先换方向", covered_points=[], gaps=["重排尚未接触"], change_topic=True))
+    changed = client.get(path).json()
+    assert changed["status"] == "ACTIVE" and changed["turns"][-1]["prompt"] == "Python 的 GIL 是什么？"
+    assert changed["turns"][0]["followup"] is None
+
+
+def test_ai_only_fills_bank_shortfall_and_must_obey_project_and_exclusion_rules(context):
+    profile = client.get("/api/v1/profiles/me").json()
+    profile = client.post("/api/v1/profiles/me/projects", json={"name": "知识库", "description": "使用 RAG 向量检索做知识库", "expectedVersion": profile["version"]}).json()
+    context["run"] = client.post("/api/v1/recommendation-runs", json={}).json()
+    project = profile["projects"][0]
+    session = create(context, mode="PREVIEW", questionCount=5)
+    def fill(payload, **kwargs):
+        return InterviewPlan(selected=[{"item_id": item["id"], "reason": "题库优先"} for item in payload["candidates"]], new_questions=[
+            {"project_id": project["id"], "question": "RAG 向量检索如何选择切块大小？", "project_quote": "RAG 向量检索", "reason": "项目补充"},
+            {"project_id": project["id"], "question": "Java 如何实现 RAG 向量检索？", "project_quote": "RAG 向量检索", "reason": "应被排除"},
+        ])
+    process_interview(UUID(session["id"]), planner=fill)
+    saved = client.get(f"/api/v1/interview-sessions/{session['id']}").json()
+    assert len(saved["plan"]) == 4 and sum(item["kind"] == "AI" for item in saved["plan"]) == 1
+    assert all("Java" not in item["prompt"] for item in saved["plan"])
+    assert "reference_answer" not in str(saved) and "referenceAnswer" not in str(saved)

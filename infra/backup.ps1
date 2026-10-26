@@ -70,6 +70,22 @@ try {
         }
     }
 
+    $interviewTable = @(& docker compose -f $ComposeFile exec -T postgres sh -lc `
+        'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT to_regclass(''public.interview_sessions'') IS NOT NULL;"')
+    if ($LASTEXITCODE -ne 0 -or $interviewTable.Count -ne 1 -or $interviewTable[0].Trim() -notin @("t", "f")) {
+        throw "无法确认模拟面试表状态，已停止备份"
+    }
+    if ($interviewTable[0].Trim() -eq "t") {
+        $interviewCount = @(& docker compose -f $ComposeFile exec -T postgres sh -lc `
+            'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT count(*) FROM interview_sessions WHERE status IN (''PLANNING'',''REVIEWING'',''ACTIVE'');"')
+        if ($LASTEXITCODE -ne 0 -or $interviewCount.Count -ne 1 -or $interviewCount[0].Trim() -notmatch '^\d+$') {
+            throw "无法确认模拟面试是否空闲，已停止备份"
+        }
+        if ([int]$interviewCount[0].Trim() -gt 0) {
+            throw "仍有模拟面试正在作答或调用模型，请先暂停或结束本轮并等待模型任务完成"
+        }
+    }
+
     $runningServices = @(& docker compose -f $ComposeFile ps --services --filter status=running)
     if ($LASTEXITCODE -ne 0) { throw "无法读取 Compose 运行状态" }
     $servicesToResume = @("api", "worker", "web" | Where-Object { $runningServices -contains $_ })

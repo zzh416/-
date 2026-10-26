@@ -54,6 +54,7 @@ import { SafeMarkdown } from './components/SafeMarkdown'
 import { ExtractionReviewDrawer } from './components/ExtractionReviewDrawer'
 import { ProfileDrawer } from './components/ProfileDrawer'
 import { RecommendationDrawer } from './components/RecommendationDrawer'
+import { InterviewDrawer } from './components/InterviewDrawer'
 import { SourceStatistics } from './components/SourceStatistics'
 import { AssetSourceMetadata } from './components/AssetSourceMetadata'
 import { ExtractionQualityPanel } from './components/ExtractionQualityPanel'
@@ -169,6 +170,7 @@ function App() {
   const [isReviewOpen, setReviewOpen] = useState(false)
   const [isProfileOpen, setProfileOpen] = useState(false)
   const [isRecommendationOpen, setRecommendationOpen] = useState(false)
+  const [isInterviewOpen, setInterviewOpen] = useState(false)
   const reportedExtractionRunId = useRef<string | null>(null)
 
   const health = useQuery({
@@ -668,6 +670,7 @@ function App() {
           <Space wrap>
             <Button onClick={() => setProfileOpen(true)}>我的画像</Button>
             <Button type="primary" onClick={() => setRecommendationOpen(true)}>我的复习清单</Button>
+            <Button onClick={() => setInterviewOpen(true)}>模拟面试</Button>
           </Space>
           <div className="service-state" role="status" aria-live="polite">
             <span className={health.data ? 'status-dot status-ok' : 'status-dot status-error'} />
@@ -1137,6 +1140,11 @@ function App() {
           else messageApi.error(text)
         }}
       />
+
+      <InterviewDrawer open={isInterviewOpen} onClose={() => setInterviewOpen(false)} notify={(kind, text) => {
+        if (kind === 'success') messageApi.success(text)
+        else messageApi.error(text)
+      }} />
 
       <Modal
         title={sourceChunkId ? '从资料整理题目' : '新建题目'}

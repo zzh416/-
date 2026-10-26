@@ -11,7 +11,7 @@ from app.identity import get_current_user_id
 from app.idempotency import remember_request, replay_resource_id, request_hash
 from app.models import InterviewSession, RecommendationItem, User
 from app.modules import interview_engine as engine
-from app.modules.interview_service import _fail_state, current, make_plan, now, save
+from app.modules.interview_service import _fail_state, current, make_plan, now, prompt_hash, save
 from app.routes.recommendations import _owned_run, _run_view
 from app.schemas.interviews import InterviewAction, InterviewAnswer, InterviewCreate, InterviewDraft, InterviewHistory, InterviewView
 from app.workers.celery_app import celery_app
@@ -90,9 +90,12 @@ def create_interview(payload: InterviewCreate, db: Session = Depends(get_db), ow
         length += len(item.prompt)
     if not pool and not confirmed:
         raise HTTPException(status_code=409, detail="请先补充可用题目或已确认项目")
+    relevant = [item for item in confirmed if not payload.project_id or item["id"] == str(payload.project_id)]
+    if length + sum(len(item["description"]) for item in relevant) > 60_000:
+        raise HTTPException(status_code=422, detail="候选题和项目说明合计过长，请缩小到一个项目")
     state = {"status": "PLANNING", "mode": payload.mode, "project_id": str(payload.project_id) if payload.project_id else None,
              "question_count": payload.question_count, "question_seconds": payload.question_seconds, "candidates": pool,
-             "existing_prompts": [item.prompt for item in questions], "profile_snapshot": run.profile_snapshot, "rule_snapshot": run.rule_snapshot,
+             "existing_prompt_hashes": [prompt_hash(item.prompt) for item in questions], "profile_snapshot": run.profile_snapshot, "rule_snapshot": run.rule_snapshot,
              "plan": [], "turns": [], "cursor": 0, "blind_topics": [], "skipped_plan_ids": [], "job_stage": "QUEUED", "plan_attempts": 0}
     row = InterviewSession(owner_id=owner_id, recommendation_run_id=run.id, status="PLANNING", state=state)
     db.add(row); db.flush()
@@ -152,6 +155,7 @@ def act(session_id: UUID, payload: InterviewAction, db: Session = Depends(get_db
             if not state["plan"]:
                 raise ValueError("当前没有可用题库题目，请先补充资料")
             state["status"], state["job_stage"], state["planning_error"] = "READY", "IDLE", None
+            state["candidates"] = []
             state["notice"] = "本轮明确改用已有题库计划，未使用AI出题结果。"
         elif payload.action == "RETRY_PLAN" and row.status in {"PLAN_FAILED", "PLANNING"}:
             if row.status == "PLANNING" and (not row.job_started_at or (now() - row.job_started_at).total_seconds() <= 600):

@@ -1,5 +1,6 @@
 """Plan and review jobs for immutable, owner-scoped timed interview sessions."""
 from copy import deepcopy
+import hashlib
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
@@ -42,6 +43,10 @@ def projects(state):
     return [item for item in state["profile_snapshot"].get("projects", []) if item["review_status"] == "CONFIRMED" and (not state["project_id"] or item["id"] == state["project_id"])]
 
 
+def prompt_hash(prompt):
+    return hashlib.sha256(question_identity(prompt).encode()).hexdigest()
+
+
 def make_plan(state, result=None):
     pool = {item["id"]: item for item in state["candidates"]}
     selected = [(pool[str(item.item_id)], item.reason) for item in result.selected if str(item.item_id) in pool] if result else [(item, "沿用题库筛选结果") for item in state["candidates"]]
@@ -62,10 +67,10 @@ def make_plan(state, result=None):
             if len(plan) >= state["question_count"]:
                 break
     project_map = {item["id"]: item for item in projects(state)}
-    known = {question_identity(prompt) for prompt in state["existing_prompts"]} | seen
+    known = set(state["existing_prompt_hashes"]) | {prompt_hash(item["prompt"]) for item in plan}
     for item in result.new_questions if result else []:
         project = project_map.get(str(item.project_id))
-        identity = question_identity(item.question)
+        identity = prompt_hash(item.question)
         if len(plan) >= state["question_count"]:
             break
         if not project or identity in known or item.project_quote not in project["description"] or not allowed(state, item.question):
@@ -118,6 +123,7 @@ def process_interview(session_id: UUID, *, planner=generate_interview_plan, revi
             if not state["plan"]:
                 raise TextModelError("INTERVIEW_EMPTY_PLAN", "没有通过筛选的题目，请补充题库或项目", retryable=False)
             state["status"], state["planning_error"] = "READY", None
+            state["candidates"] = []
         else:
             turn = state["turns"][-1]
             root = next(item for item in state["plan"] if item["id"] == turn["root_id"])
@@ -131,17 +137,18 @@ def process_interview(session_id: UUID, *, planner=generate_interview_plan, revi
             turn["review_error"], turn["review_status"] = None, "DONE"
             turn["followup"] = None
             suggestion = result.followup
-            existing = {question_identity(item["prompt"]) for item in state["plan"] + state["turns"]}
+            existing = set(state["existing_prompt_hashes"]) | {prompt_hash(item["prompt"]) for item in state["plan"] + state["turns"]}
             if result.change_topic:
                 state["blind_topics"] = sorted(set(state["blind_topics"]) | set(turn["topics"]))
                 state["notice"] = "回答显示此方向暂不熟悉，已切换方向，不继续追问。"
                 engine.advance(state, now())
             else:
-                if suggestion and turn["depth"] < 2 and suggestion.answer_quote in turn["answer"] and allowed(state, suggestion.question) and question_identity(suggestion.question) not in existing:
+                if suggestion and turn["depth"] < 2 and suggestion.answer_quote in turn["answer"] and allowed(state, suggestion.question) and prompt_hash(suggestion.question) not in existing:
                     grounded = bool(project and suggestion.project_quote and len(suggestion.project_quote.strip()) >= 4 and suggestion.project_quote in project["description"])
                     related = bool(set(_topics(suggestion.question)).intersection(turn["topics"]))
-                    if (project and grounded and match_projects(suggestion.question, prepare_projects([project]))) or (not project and related):
-                        turn["followup"] = {"prompt": suggestion.question, "answer_quote": suggestion.answer_quote, "project_quote": suggestion.project_quote if grounded else None}
+                    question_grounded = bool(suggestion.question_quote and len(suggestion.question_quote.strip()) >= 4 and suggestion.question_quote in turn["prompt"])
+                    if (project and grounded and match_projects(suggestion.question, prepare_projects([project]))) or (not project and (related or question_grounded)):
+                        turn["followup"] = {"prompt": suggestion.question, "answer_quote": suggestion.answer_quote, "project_quote": suggestion.project_quote if grounded else None, "question_quote": suggestion.question_quote if question_grounded else None}
                 state["status"] = "AWAITING_NEXT"
         state["job_stage"] = "IDLE"
     except (TextModelError, TextModelNotConfigured) as exc:

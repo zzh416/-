@@ -43,7 +43,7 @@ def test_dont_know_immediately_changes_direction_and_blocks_further_same_topic_q
     assert state["status"] == "COMPLETED"
 
 
-@pytest.mark.parametrize("text", ["不会", "我不知道", "不了解", "暂时没接触过", "这题不会。"])
+@pytest.mark.parametrize("text", ["不会", "我不知道", "不了解", "暂时没接触过", "这题不会。", "我没用过", "这个不懂"])
 def test_explicit_short_unknown_answers_are_recognized(text):
     assert unknown_answer(text)
 
@@ -63,3 +63,11 @@ def test_skip_moves_on_without_marking_a_whole_topic_unknown():
     submit(state, "", "SKIP", NOW)
     assert state["turns"][-1]["id"] != state["turns"][0]["id"]
     assert state["turns"][-1]["prompt"] == "RAG 如何评估效果？" and not state["blind_topics"]
+
+
+def test_extension_after_deadline_keeps_the_time_expiry_record():
+    state = session()
+    begin(state, NOW)
+    command(state, "EXTEND", NOW + timedelta(seconds=181), 60)
+    submit(state, "先召回，再重排。", "ANSWER", NOW + timedelta(seconds=182))
+    assert state["turns"][0]["timed_out"] is True
