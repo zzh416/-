@@ -131,6 +131,7 @@ export interface Question {
   version: number
   answer: Answer | null
   aiAnswer: AIAnswerRun | null
+  confirmedAiAnswerId: string | null
   effectiveAnswer: EffectiveAnswer | null
   answerState: 'MISSING' | 'SOURCE_ANSWER' | 'AI_ANSWER'
   note: QuestionNote | null
@@ -620,6 +621,9 @@ export const reviseAsset = (
 
 export const deleteAsset = (assetId: string) =>
   apiRequest<void>(`/api/v1/assets/${assetId}`, { method: 'DELETE' })
+
+export const fetchQuestion = (questionId: string) =>
+  apiRequest<Question>(`/api/v1/questions/${questionId}`)
 
 export const fetchQuestions = (input: {
   collectionId?: string

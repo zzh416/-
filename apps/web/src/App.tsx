@@ -66,6 +66,7 @@ import { GettingStarted } from './components/GettingStarted'
 import { UsageGuide } from './components/UsageGuide'
 import { AiAnswerPanel } from './components/AiAnswerPanel'
 import { AnswerOrigin } from './components/AnswerOrigin'
+import { invalidatePersonalizedContent } from './api/contextInvalidation'
 
 interface CollectionForm {
   name: string
@@ -239,13 +240,23 @@ function App() {
 
   const refreshCollections = () => queryClient.invalidateQueries({ queryKey: ['collections'] })
   const refreshAssets = () => queryClient.invalidateQueries({ queryKey: ['assets', activeCollectionId] })
-  const refreshQuestions = () => queryClient.invalidateQueries({ queryKey: ['questions'] })
+  const refreshQuestions = () => invalidatePersonalizedContent(queryClient)
+
+  function selectCollection(collectionId: string | null) {
+    setCollectionListExpanded(false)
+    if (collectionId === activeCollectionId) return
+    setSelectedCollectionId(collectionId)
+    setSearchDraft('')
+    setSearch('')
+    setAnswerFilter('ANY')
+    setPage(1)
+  }
 
   const collectionCreate = useMutation({
     mutationFn: createCollection,
     onSuccess: async (created) => {
       await refreshCollections()
-      setSelectedCollectionId(created.id)
+      selectCollection(created.id)
       setCreateCollectionOpen(false)
       messageApi.success('资料库已创建')
     },
@@ -253,8 +264,11 @@ function App() {
   })
   const collectionDelete = useMutation({
     mutationFn: deleteCollection,
-    onSuccess: async () => {
-      await refreshCollections()
+    onSuccess: async (_data, collectionId) => {
+      if (collectionId === activeCollectionId) {
+        selectCollection(collections.data?.items.find((item) => item.id !== collectionId)?.id ?? null)
+      }
+      await Promise.all([refreshCollections(), refreshQuestions()])
       messageApi.success('资料库已删除')
     },
     onError: (error) => messageApi.error(error.message),
@@ -309,6 +323,7 @@ function App() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['asset', variables.id] }),
         refreshAssets(),
+        refreshQuestions(),
       ])
       setAssetEditing(false)
       messageApi.success('原文已保存为新版本')
@@ -319,7 +334,7 @@ function App() {
     mutationFn: deleteAsset,
     onSuccess: async () => {
       setSelectedAssetId(null)
-      await refreshAssets()
+      await Promise.all([refreshAssets(), refreshQuestions()])
       messageApi.success('资料已删除，手写问答会保留')
     },
     onError: (error) => messageApi.error(error.message),
@@ -414,7 +429,7 @@ function App() {
     if (!run || run.id !== extractionRunId || run.id === reportedExtractionRunId.current) return
     if (run.status === 'SUCCEEDED' || run.status === 'PARTIAL_SUCCESS') {
       reportedExtractionRunId.current = run.id
-      void queryClient.invalidateQueries({ queryKey: ['questions'] })
+      void invalidatePersonalizedContent(queryClient)
       messageApi.success(
         `自动整理完成：${run.answeredCount} 道有答案，${run.missingCount} 道无答案`,
       )
@@ -620,7 +635,9 @@ function App() {
                   ? '没有待补充答案的问题'
                   : '还没有问答'
           }
-        />
+        >
+          {page > 1 && <Button onClick={() => setPage(1)}>返回首页</Button>}
+        </Empty>
       )}
       <LearningProvider questionIds={questions.data?.items.map((question) => question.id) ?? []}
         versionKey={questions.data?.items.map((question) => [question.id, question.version, question.answer?.version ?? 0,
@@ -670,6 +687,7 @@ function App() {
             )}
             <AiAnswerPanel questionId={question.id} questionVersion={question.version}
               initialAiAnswer={question.aiAnswer} effectiveAiAnswerId={effectiveAiAnswer?.aiAnswerId}
+              confirmedAiAnswerId={question.confirmedAiAnswerId}
               hasPrimaryAnswer={Boolean(question.answer)} />
             {question.note && (
               <div className="note-box">
@@ -772,7 +790,7 @@ function App() {
                 key={item.id}
                 className={item.id === activeCollectionId ? 'collection-item selected' : 'collection-item'}
               >
-                <button className="collection-select" aria-current={item.id === activeCollectionId ? 'true' : undefined} onClick={() => { setSelectedCollectionId(item.id); setCollectionListExpanded(false) }}>
+                <button className="collection-select" aria-current={item.id === activeCollectionId ? 'true' : undefined} onClick={() => selectCollection(item.id)}>
                   <strong title={item.name}>{item.name}</strong>
                   <Tag>{item.purpose === 'KNOWLEDGE_BASE' ? '知识库' : '面经'}</Tag>
                 </button>

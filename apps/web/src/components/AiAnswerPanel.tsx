@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Checkbox, Input, Modal, Skeleton, Space, Tag, Typography } from 'antd'
 import { useEffect, useState } from 'react'
 import { createAIAnswer, fetchAIAnswer, fetchLatestAIAnswer, retryAIAnswer, reviewAIAnswer, type AIAnswerRun } from '../api/aiAnswers'
+import { fetchQuestion } from '../api/client'
+import { invalidatePersonalizedContent } from '../api/contextInvalidation'
 import { SafeMarkdown } from './SafeMarkdown'
 import './aiAnswers.css'
 
@@ -10,13 +12,14 @@ interface Props {
   questionVersion: number
   initialAiAnswer?: AIAnswerRun | null
   effectiveAiAnswerId?: string | null
+  confirmedAiAnswerId?: string | null
   hasPrimaryAnswer?: boolean
   disabled?: boolean
 }
 
 const pending = (run: AIAnswerRun | null | undefined) => Boolean(run && ['QUEUED', 'PROCESSING'].includes(run.status))
 
-export function AiAnswerPanel({ questionId, questionVersion, initialAiAnswer, effectiveAiAnswerId = null, hasPrimaryAnswer = false, disabled = false }: Props) {
+export function AiAnswerPanel({ questionId, questionVersion, initialAiAnswer, effectiveAiAnswerId = null, confirmedAiAnswerId, hasPrimaryAnswer = false, disabled = false }: Props) {
   const cache = useQueryClient()
   const [open, setOpen] = useState(false)
   const [useProfile, setUseProfile] = useState(true)
@@ -36,6 +39,14 @@ export function AiAnswerPanel({ questionId, questionVersion, initialAiAnswer, ef
     refetchInterval: (current) => pending(current.state.data) ? 1500 : false,
   })
   const latestRun = query.data === undefined ? initialAiAnswer : query.data
+  const question = useQuery({
+    queryKey: ['question', questionId],
+    queryFn: () => fetchQuestion(questionId),
+    enabled: open && confirmedAiAnswerId === undefined,
+  })
+  const confirmedRunId = confirmedAiAnswerId !== undefined
+    ? confirmedAiAnswerId
+    : question.data ? question.data.confirmedAiAnswerId : effectiveAiAnswerId
   const viewingPrevious = Boolean(selectedRunId && selectedRunId !== latestRun?.id)
   const selectedQuery = useQuery({
     queryKey: ['ai-answer-run', selectedRunId],
@@ -55,12 +66,7 @@ export function AiAnswerPanel({ questionId, questionVersion, initialAiAnswer, ef
       return previous
     })
   }, [cache, questionId, initialAiAnswer])
-  const refreshConsumers = () => Promise.all([
-    cache.invalidateQueries({ queryKey: ['questions'] }),
-    cache.invalidateQueries({ queryKey: ['recommendation-run'] }),
-    cache.invalidateQueries({ queryKey: ['recommendation-items'] }),
-    cache.invalidateQueries({ queryKey: ['learning'] }),
-  ])
+  const refreshConsumers = () => invalidatePersonalizedContent(cache)
   const updateRun = (next: AIAnswerRun) => {
     cache.setQueryData(['ai-answer-run', next.id], next)
     cache.setQueryData<AIAnswerRun | null>(key, (previous) =>
@@ -88,13 +94,14 @@ export function AiAnswerPanel({ questionId, questionVersion, initialAiAnswer, ef
   useEffect(() => {
     if (run?.status === 'SUCCEEDED' || run?.status === 'FAILED') {
       void cache.invalidateQueries({ queryKey: ['questions'] })
+      void cache.invalidateQueries({ queryKey: ['question', questionId] })
     }
-  }, [cache, run?.id, run?.status])
+  }, [cache, questionId, run?.id, run?.status])
 
   const hasContent = Boolean(run?.content && run.reviewStatus !== 'DISCARDED')
   const canGenerate = !run || stale || run.reviewStatus === 'DISCARDED' || newDraftRequested
     || (run.status === 'FAILED' && !run.canRetry)
-  const buttonLabel = pending(latestRun) ? 'AI 补充生成中…' : latestRun?.content || effectiveAiAnswerId ? '查看 AI 补充答案' : 'AI 补充答案'
+  const buttonLabel = pending(latestRun) ? 'AI 补充生成中…' : latestRun?.content || confirmedRunId ? '查看 AI 补充答案' : 'AI 补充答案'
   const selectRun = (id: string | null) => {
     setSelectedRunId(id); setEditing(false); setNewDraftRequested(false); setActionError(null); setSuccess(null)
   }
@@ -112,11 +119,13 @@ export function AiAnswerPanel({ questionId, questionVersion, initialAiAnswer, ef
         <Typography.Paragraph className="ai-answer-intro">
           先生成草稿，核对后再确认采用。AI 来源会一直保留，确认后也不会覆盖资料原文或手写答案。
         </Typography.Paragraph>
-        {(viewingPrevious || (effectiveAiAnswerId && effectiveAiAnswerId !== latestRun?.id)) && <Space wrap>
+        {(viewingPrevious || (confirmedRunId && confirmedRunId !== latestRun?.id)) && <Space wrap>
           <Button type={!viewingPrevious ? 'primary' : 'default'} disabled={busy} onClick={() => selectRun(null)}>最新生成记录</Button>
-          {effectiveAiAnswerId && effectiveAiAnswerId !== latestRun?.id && <Button type={selectedRunId === effectiveAiAnswerId ? 'primary' : 'default'} disabled={busy}
-            onClick={() => selectRun(effectiveAiAnswerId)}>当前采用的 AI 答案</Button>}
+          {confirmedRunId && confirmedRunId !== latestRun?.id && <Button type={selectedRunId === confirmedRunId ? 'primary' : 'default'} disabled={busy}
+            onClick={() => selectRun(confirmedRunId)}>当前已确认的 AI 答案</Button>}
         </Space>}
+        {confirmedAiAnswerId === undefined && question.isError && <Alert type="error" showIcon title="已确认的 AI 版本加载失败" description={question.error.message}
+          action={<Button onClick={() => void question.refetch()}>重新加载</Button>} />}
         {viewingPrevious && <Typography.Text type="secondary">正在查看此前生成的版本。最新草稿另行保留，确认后才会参与有效答案选择。</Typography.Text>}
         {visibleQuery.isFetching && !run && <Skeleton active paragraph={{ rows: 2 }} />}
         {visibleQuery.isError && <Alert type="error" showIcon title="AI 补充记录加载失败" description={visibleQuery.error.message}
