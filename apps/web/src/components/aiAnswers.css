@@ -1,0 +1,15 @@
+.ai-answer-entry { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.ai-answer-panel { width: 100%; padding-top: 8px; }
+.ai-answer-panel .ai-answer-intro { margin-bottom: 0; color: #475569; line-height: 1.7; }
+.ai-answer-content { width: 100%; min-width: 0; padding: 20px; border: 1px solid #c7d8eb; border-left: 3px solid #426b9b; border-radius: 6px; background: #f5f8fc; overflow-wrap: anywhere; }
+.ai-answer-content-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.ai-answer-content .ai-answer-meta { margin: 16px 0 0; font-size: 13px; }
+.ai-answer-content .answer-text > :last-child { margin-bottom: 0; }
+.ai-answer-content pre { max-width: 100%; overflow-x: auto; }
+.ai-answer-actions { margin-top: 20px; }
+.ai-answer-citations { margin-top: 12px; }
+.ai-answer-citations summary { cursor: pointer; padding: 6px 0; color: #345a85; }
+.ai-answer-citations blockquote { margin: 12px 0 0; border-left: 2px solid #bdcfe3; padding-left: 12px; color: #475569; white-space: pre-wrap; }
+.ai-answer-generation { border-top: 1px solid #e2e8f0; padding-top: 16px; width: 100%; }
+.ai-answer-generation .ant-typography { margin: 12px 0; font-size: 13px; line-height: 1.7; }
+@media (max-width: 600px) { .ai-answer-content { padding: 14px; } .ai-answer-actions .ant-btn { min-height: 40px; } }

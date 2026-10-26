@@ -1,4 +1,5 @@
 import { apiRequest, idempotentCreate, jsonRequest, type SourceStatistics } from './client'
+import type { AnswerSourceType } from './aiAnswers'
 
 export type QuestionSource = 'BANK' | 'AI' | 'HYBRID'
 
@@ -12,6 +13,7 @@ export interface InterviewQuestion {
   projectQuote: string | null
   skillBasis: string | null
   sourceStatistics: SourceStatistics | null
+  referenceAnswerSourceType: AnswerSourceType | null
 }
 
 export interface InterviewTurn extends InterviewQuestion {

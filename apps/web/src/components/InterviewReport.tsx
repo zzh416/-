@@ -6,6 +6,7 @@ import { SafeMarkdown } from './SafeMarkdown'
 export function InterviewFeedback({ turn }: { turn: InterviewTurn }) {
   if (!turn.feedback) return null
   return <Card size="small" title="模型反馈（供复盘，需人工核对）">
+    {turn.referenceAnswerSourceType === 'AI_GENERATED' && <Typography.Paragraph type="secondary">本次反馈参考了已确认的 AI 补充答案；AI 来源仅供复习参考。</Typography.Paragraph>}
     <Typography.Paragraph>{turn.feedback.summary}</Typography.Paragraph>
     {turn.feedback.coveredPoints.length > 0 && <><Typography.Text strong>已覆盖</Typography.Text><ul>{turn.feedback.coveredPoints.map((item, index) => <li key={index}>{item}</li>)}</ul></>}
     {turn.feedback.gaps.length > 0 && <><Typography.Text strong>待澄清／补充</Typography.Text><ul>{turn.feedback.gaps.map((item, index) => <li key={index}>{item}</li>)}</ul></>}

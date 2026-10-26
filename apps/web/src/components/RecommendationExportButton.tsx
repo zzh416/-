@@ -54,7 +54,7 @@ export function RecommendationExportButton({ run, notify }: Props) {
       >
         <Typography.Paragraph>
           导出全部 {run.includedCount} 道“进入清单”的题目，覆盖全部分页，不受当前搜索、项目和答案筛选影响。
-          包含已有的适用答案及保存的来源信息。未提供答案的题目保持无答案。
+          包含已有的适用答案及保存的来源信息。已确认的 AI 补充会保留 AI 来源标注；未确认的草稿不作为答案导出。
         </Typography.Paragraph>
         {!run.isCurrent && (
           <Alert

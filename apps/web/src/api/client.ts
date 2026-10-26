@@ -1,3 +1,5 @@
+import type { AIAnswerRun, AnswerSourceType, EffectiveAnswer } from './aiAnswers'
+
 export interface HealthCheck {
   status: string
   checks: Record<string, string>
@@ -128,7 +130,9 @@ export interface Question {
   prompt: string
   version: number
   answer: Answer | null
-  answerState: 'MISSING' | 'SOURCE_ANSWER'
+  aiAnswer: AIAnswerRun | null
+  effectiveAnswer: EffectiveAnswer | null
+  answerState: 'MISSING' | 'SOURCE_ANSWER' | 'AI_ANSWER'
   note: QuestionNote | null
   createdAt: string
   updatedAt: string
@@ -416,12 +420,14 @@ export interface RecommendationItem {
   position: number
   questionVersion: number
   answerVersion: number | null
+  aiAnswerId: string | null
+  aiAnswerVersion: number | null
   prompt: string
   answerContent: string | null
-  answerSourceType: string | null
+  answerSourceType: AnswerSourceType | null
   decision: RecommendationDecision
   score: number
-  answerState: 'MISSING' | 'SOURCE_ANSWER'
+  answerState: 'MISSING' | 'SOURCE_ANSWER' | 'AI_ANSWER'
   usableAnswerState: UsableAnswerState
   questionTechnologies: RecommendationTechnology[]
   answerTechnologies: RecommendationTechnology[]

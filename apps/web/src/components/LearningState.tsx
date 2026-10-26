@@ -30,12 +30,15 @@ export function LearningSelect({ item, disabled = false }: { item: LearningState
   </Space>
 }
 
-export function QuestionLearning({ questionId, questionVersion, answerVersion }: { questionId: string; questionVersion: number; answerVersion: number | null }) {
+export function QuestionLearning({ questionId, questionVersion, answerVersion, aiAnswerId = null, aiAnswerVersion = null }: {
+  questionId: string; questionVersion: number; answerVersion: number | null; aiAnswerId?: string | null; aiAnswerVersion?: number | null
+}) {
   const context = useContext(StateContext)
   const item = context.states.get(questionId)
   if (!context.enabled) return <Typography.Text type="secondary">历史清单请重新生成后再标记掌握程度。</Typography.Text>
   if (!item) return <Typography.Text type="secondary">掌握程度尚未加载。</Typography.Text>
   const stale = item.questionVersion !== questionVersion || item.answerVersion !== answerVersion
+    || (item.aiAnswerId ?? null) !== aiAnswerId || (item.aiAnswerVersion ?? null) !== aiAnswerVersion
   return <Space orientation="vertical" size={4}>
     <LearningSelect item={item} disabled={stale} />
     {stale && <Typography.Text type="warning">当前显示的题目或答案版本已变化，请刷新后标记。</Typography.Text>}

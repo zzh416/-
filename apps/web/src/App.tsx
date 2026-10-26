@@ -61,6 +61,11 @@ import { LearningDrawer } from './components/LearningDrawer'
 import { SourceStatistics } from './components/SourceStatistics'
 import { AssetSourceMetadata } from './components/AssetSourceMetadata'
 import { ExtractionQualityPanel } from './components/ExtractionQualityPanel'
+import { WorkspaceNav, type WorkspaceSection } from './components/WorkspaceNav'
+import { GettingStarted } from './components/GettingStarted'
+import { UsageGuide } from './components/UsageGuide'
+import { AiAnswerPanel } from './components/AiAnswerPanel'
+import { AnswerOrigin } from './components/AnswerOrigin'
 
 interface CollectionForm {
   name: string
@@ -176,6 +181,8 @@ function App() {
   const [isRecommendationOpen, setRecommendationOpen] = useState(false)
   const [isInterviewOpen, setInterviewOpen] = useState(false)
   const [isLearningOpen, setLearningOpen] = useState(false)
+  const [isGuideOpen, setGuideOpen] = useState(false)
+  const [isCollectionListExpanded, setCollectionListExpanded] = useState(false)
   const [interviewEntry, setInterviewEntry] = useState<{ key: string; id?: string }>({ key: 'default' })
   const reportedExtractionRunId = useRef<string | null>(null)
 
@@ -422,6 +429,28 @@ function App() {
     setQuestionOpen(true)
   }
 
+  function navigateWorkspace(section: WorkspaceSection) {
+    setProfileOpen(section === 'profile')
+    setRecommendationOpen(section === 'review')
+    setLearningOpen(section === 'learning')
+    setInterviewOpen(section === 'interview')
+    setGuideOpen(false)
+  }
+
+  function showImports() {
+    setActiveTab('assets')
+    if (!activeCollectionId) setCreateCollectionOpen(true)
+  }
+
+  function showOrganization() {
+    setActiveTab('assets')
+    if (!activeCollectionId) {
+      setCreateCollectionOpen(true)
+      return
+    }
+    messageApi.info('打开一份已解析的资料，点击“AI 自动整理”，完成后进入复核。')
+  }
+
   function openEdit(question: Question, mode: 'question' | 'answer' | 'note') {
     setEditingQuestion(question)
     setDialogMode(mode)
@@ -594,10 +623,15 @@ function App() {
         />
       )}
       <LearningProvider questionIds={questions.data?.items.map((question) => question.id) ?? []}
-        versionKey={questions.data?.items.map((question) => `${question.id}:${question.version}:${question.answer?.version ?? 0}`).join(',')}
+        versionKey={questions.data?.items.map((question) => [question.id, question.version, question.answer?.version ?? 0,
+          question.effectiveAnswer?.sourceType === 'AI_GENERATED' ? `${question.effectiveAnswer.aiAnswerId}:${question.effectiveAnswer.version}` : '',
+        ].join(':')).join(',')}
         enabled={activeTab === 'questions'}>
       <div className="question-list">
-        {questions.data?.items.map((question, index) => (
+        {questions.data?.items.map((question, index) => {
+          const effectiveAnswer = question.effectiveAnswer ?? question.answer
+          const effectiveAiAnswer = question.effectiveAnswer?.sourceType === 'AI_GENERATED' ? question.effectiveAnswer : null
+          return (
           <article className="question-card" key={question.id}>
             <div className="question-heading">
               <span className="question-index">Q{(page - 1) * 20 + index + 1}</span>
@@ -623,16 +657,20 @@ function App() {
               </Tag>
             </div>
             <SafeMarkdown className="question-text">{question.prompt}</SafeMarkdown>
-            <QuestionLearning questionId={question.id} questionVersion={question.version} answerVersion={question.answer?.version ?? null} />
+            <QuestionLearning questionId={question.id} questionVersion={question.version} answerVersion={question.answer?.version ?? null}
+              aiAnswerId={effectiveAiAnswer?.aiAnswerId ?? null} aiAnswerVersion={effectiveAiAnswer?.version ?? null} />
             <SourceStatistics statistics={question.sourceStatistics} />
             <Divider plain>
-              答案
+              {effectiveAnswer ? <AnswerOrigin sourceType={effectiveAnswer.sourceType} /> : '答案'}
             </Divider>
-            {question.answer ? (
-              <SafeMarkdown className="answer-text">{question.answer.content}</SafeMarkdown>
+            {effectiveAnswer ? (
+              <SafeMarkdown className="answer-text">{effectiveAnswer.content}</SafeMarkdown>
             ) : (
               <Typography.Text type="secondary">暂未填写答案</Typography.Text>
             )}
+            <AiAnswerPanel questionId={question.id} questionVersion={question.version}
+              initialAiAnswer={question.aiAnswer} effectiveAiAnswerId={effectiveAiAnswer?.aiAnswerId}
+              hasPrimaryAnswer={Boolean(question.answer)} />
             {question.note && (
               <div className="note-box">
                 <strong>我的备注</strong>
@@ -641,7 +679,7 @@ function App() {
             )}
             <div className="question-actions">
               <Button type="link" onClick={() => openEdit(question, 'question')}>编辑题目</Button>
-              <Button type="link" onClick={() => openEdit(question, 'answer')}>编辑答案</Button>
+              <Button type="link" onClick={() => openEdit(question, 'answer')}>{question.answer ? '编辑原答案' : '手动填写答案'}</Button>
               <Button type="link" onClick={() => openEdit(question, 'note')}>
                 {question.note ? '编辑备注' : '添加备注'}
               </Button>
@@ -655,7 +693,7 @@ function App() {
               </Popconfirm>
             </div>
           </article>
-        ))}
+        )})}
       </div>
       </LearningProvider>
       {(questions.data?.total ?? 0) > 20 && (
@@ -673,34 +711,44 @@ function App() {
   return (
     <Layout className="app-shell">
       {messageContext}
+      <a className="skip-link" href="#workspace-content">跳到主要内容</a>
       <header className="app-header">
-        <div>
-          <Typography.Title level={1}>面经综合助手</Typography.Title>
-          <Typography.Text type="secondary">把分散资料整理成自己的复习问答</Typography.Text>
+        <div className="app-brand">
+          <span className="brand-mark" aria-hidden="true">问</span>
+          <div>
+            <Typography.Title level={1}>面经综合助手</Typography.Title>
+            <Typography.Text type="secondary">把资料整理成适合自己的复习计划</Typography.Text>
+          </div>
         </div>
         <div className="header-actions">
-          <Space wrap>
-            <Button onClick={() => setProfileOpen(true)}>我的画像</Button>
-            <Button type="primary" onClick={() => setRecommendationOpen(true)}>我的复习清单</Button>
-            <Button onClick={() => setLearningOpen(true)}>薄弱题复习</Button>
-            <Button onClick={() => setInterviewOpen(true)}>模拟面试</Button>
-          </Space>
           <div className="service-state" role="status" aria-live="polite">
             <span className={health.data ? 'status-dot status-ok' : 'status-dot status-error'} />
             {health.data ? '本地服务正常' : health.isError ? '本地服务异常' : '正在检查服务'}
           </div>
+          <Button onClick={() => setGuideOpen(true)}>使用指南</Button>
         </div>
       </header>
 
       <Layout className="workspace-layout">
-        <aside className="collection-panel" aria-label="资料库列表">
+        <aside className="collection-panel" aria-label="工作台导航与资料库">
+          <div className="nav-section-label">个人备考</div>
+          <WorkspaceNav
+            active={isProfileOpen ? 'profile' : isRecommendationOpen ? 'review' : isLearningOpen ? 'learning' : isInterviewOpen ? 'interview' : 'workspace'}
+            onNavigate={navigateWorkspace}
+          />
+          <div className="collection-divider" />
           <div className="panel-heading">
             <div>
-              <Typography.Title level={2}>资料库</Typography.Title>
-              <Typography.Text type="secondary">面经与内部知识分开管理</Typography.Text>
+              <Typography.Title level={2}>资料库 <span className="collection-count">{collections.data?.items.length ?? 0}</span></Typography.Title>
+              <Typography.Text type="secondary">面经与知识分类管理</Typography.Text>
             </div>
-            <Button type="primary" onClick={() => setCreateCollectionOpen(true)}>新建</Button>
+            <Button onClick={() => setCreateCollectionOpen(true)}>新建</Button>
           </div>
+          <button className="collection-mobile-toggle" type="button" aria-expanded={isCollectionListExpanded} aria-controls="collection-directory"
+            onClick={() => setCollectionListExpanded((value) => !value)}>
+            <span>{selectedCollection?.name ?? '选择资料库'}</span><span>{isCollectionListExpanded ? '收起' : '切换资料库'}</span>
+          </button>
+          <div id="collection-directory" className={`collection-directory${isCollectionListExpanded ? ' is-expanded' : ''}`}>
           {collections.isLoading && <Skeleton active paragraph={{ rows: 4 }} />}
           {collections.isError && (
             <Alert
@@ -724,8 +772,8 @@ function App() {
                 key={item.id}
                 className={item.id === activeCollectionId ? 'collection-item selected' : 'collection-item'}
               >
-                <button className="collection-select" onClick={() => setSelectedCollectionId(item.id)}>
-                  <strong>{item.name}</strong>
+                <button className="collection-select" aria-current={item.id === activeCollectionId ? 'true' : undefined} onClick={() => { setSelectedCollectionId(item.id); setCollectionListExpanded(false) }}>
+                  <strong title={item.name}>{item.name}</strong>
                   <Tag>{item.purpose === 'KNOWLEDGE_BASE' ? '知识库' : '面经'}</Tag>
                 </button>
                 <div className="collection-actions">
@@ -742,38 +790,47 @@ function App() {
               </div>
             ))}
           </div>
+          </div>
+          <div className="sidebar-help"><strong>第一次使用？</strong><p>按上手路线操作，也可以随时查看指南。</p><Button type="link" onClick={() => setGuideOpen(true)}>查看使用指南 →</Button></div>
         </aside>
 
-        <main className="content-panel">
+        <main id="workspace-content" className="content-panel" tabIndex={-1}>
+          <GettingStarted onImport={showImports} onOrganize={showOrganization}
+            onProfile={() => navigateWorkspace('profile')} onReview={() => navigateWorkspace('review')}
+            onInterview={() => navigateWorkspace('interview')} onGuide={() => setGuideOpen(true)} />
           {selectedCollection ? (
             <>
               <div className="collection-context">
-                <Typography.Text type="secondary">当前资料库</Typography.Text>
-                <Typography.Title level={2}>{selectedCollection.name}</Typography.Title>
+                <div><Typography.Text type="secondary">资料工作台 / 当前资料库</Typography.Text>
+                <Typography.Title level={2}>{selectedCollection.name}</Typography.Title></div>
+                <Tag>{selectedCollection.purpose === 'KNOWLEDGE_BASE' ? '知识库' : '面经'}</Tag>
               </div>
               <Tabs
                 activeKey={activeTab}
                 onChange={setActiveTab}
                 items={[
                   { key: 'assets', label: '资料', children: renderAssets() },
-                  { key: 'questions', label: '问答', children: renderQuestions() },
+                  { key: 'questions', label: '题库', children: renderQuestions() },
                 ]}
               />
             </>
           ) : (
             <div className="content-empty">
-              <Typography.Title level={2}>选择你的备考方式</Typography.Title>
+              <div className="empty-workspace-mark" aria-hidden="true">01</div>
+              <Typography.Title level={2}>从一份资料，开始整理</Typography.Title>
               <Typography.Paragraph type="secondary">
-                可以导入面经建立题库，也可以先上传简历并确认技能和项目，直接开始 AI 模拟面试。
+                创建资料库后，导入你的面经、八股文或网页链接。系统会提取文字，再由你选择是否自动整理题答。
               </Typography.Paragraph>
               <Space wrap>
-                <Button onClick={() => setProfileOpen(true)}>完善我的画像</Button>
-                <Button type="primary" onClick={() => setInterviewOpen(true)}>开始模拟面试</Button>
+                <Button type="primary" onClick={() => setCreateCollectionOpen(true)}>创建第一个资料库</Button>
+                <Button onClick={() => navigateWorkspace('profile')}>先完善我的画像</Button>
               </Space>
+              <div className="empty-workspace-alternative">暂时没有资料？确认技能或项目后，<button type="button" onClick={() => navigateWorkspace('interview')}>直接模拟面试</button>。</div>
             </div>
           )}
         </main>
       </Layout>
+      <UsageGuide open={isGuideOpen} onClose={() => setGuideOpen(false)} onNavigate={navigateWorkspace} />
 
       <Modal
         title="新建资料库"

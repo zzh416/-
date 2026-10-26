@@ -1,4 +1,5 @@
 import { apiRequest, jsonRequest } from './client'
+import type { AnswerSourceType } from './aiAnswers'
 
 export type LearningStatus = 'UNMARKED' | 'MASTERED' | 'WEAK' | 'UNKNOWN'
 export type LearningFilter = 'TO_REVIEW' | 'ANY' | Exclude<LearningStatus, 'UNMARKED'>
@@ -10,12 +11,15 @@ export interface LearningState {
   version: number
   questionVersion: number
   answerVersion: number | null
+  aiAnswerId: string | null
+  aiAnswerVersion: number | null
   contentChanged: boolean
   updatedAt: string | null
 }
 export interface LearningItem extends LearningState {
   prompt: string
   answerContent: string | null
+  answerSourceType: AnswerSourceType | null
   sourceSessionId: string | null
   sourceTurnId: string | null
 }
@@ -44,6 +48,7 @@ export const updateLearning = (item: LearningState, status: LearningStatus) => {
   const path = item.questionId ? `questions/${item.questionId}` : `items/${item.id}`
   return apiRequest<LearningState>(`/api/v1/learning/${path}`, jsonRequest('PUT', {
     status, expectedVersion: item.version, questionVersion: item.questionVersion, answerVersion: item.answerVersion,
+    aiAnswerId: item.aiAnswerId, aiAnswerVersion: item.aiAnswerVersion,
   }))
 }
 export const fetchLearning = (state: LearningFilter, q: string, page: number) => apiRequest<LearningPage>(`/api/v1/learning/items?${new URLSearchParams({ state, q, page: String(page), pageSize: '20' })}`)

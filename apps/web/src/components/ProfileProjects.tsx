@@ -25,7 +25,6 @@ export function ProfileProjects({ profile, disabled, notify }: Props) {
   const [editVersion, setEditVersion] = useState(profile.version)
   const onSaved = (next: UserProfile) => {
     queryClient.setQueryData(['profile'], next)
-    void queryClient.invalidateQueries({ queryKey: ['recommendation-run'] })
     setEditing(null)
     notify('success', '项目已保存，重新生成清单后应用关联')
   }

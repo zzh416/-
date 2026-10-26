@@ -20,8 +20,9 @@ import {
   Typography,
   Upload,
 } from 'antd'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ProfileProjects } from './ProfileProjects'
+import { invalidatePersonalizedContent } from '../api/contextInvalidation'
 import {
   createPreferenceRule,
   createProfileSkill,
@@ -142,7 +143,7 @@ export function ProfileDrawer({ open, onClose, notify }: ProfileDrawerProps) {
   const profile = useQuery({
     queryKey: ['profile'],
     queryFn: fetchProfile,
-    enabled: open,
+    enabled: (query) => open || isProfilePending(query.state.data),
     refetchInterval: (query) => (isProfilePending(query.state.data) ? 1_500 : false),
   })
   const technologies = useQuery({
@@ -155,6 +156,13 @@ export function ProfileDrawer({ open, onClose, notify }: ProfileDrawerProps) {
     queryFn: fetchPreferenceRules,
     enabled: open,
   })
+
+  const ruleVersion = rules.data?.items.map((rule) => `${rule.id}:${rule.version}:${rule.isActive}`).join('|')
+  useEffect(() => {
+    if (profile.data?.version !== undefined || ruleVersion !== undefined) {
+      void invalidatePersonalizedContent(queryClient)
+    }
+  }, [queryClient, profile.data?.version, ruleVersion])
 
   const updateProfileCache = (next: UserProfile) => {
     queryClient.setQueryData(['profile'], next)

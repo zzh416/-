@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { fetchLearning, type LearningFilter } from '../api/learning'
 import { LearningSelect } from './LearningState'
 import { SafeMarkdown } from './SafeMarkdown'
+import { AnswerOrigin } from './AnswerOrigin'
+import { AiAnswerPanel } from './AiAnswerPanel'
 
 export function LearningDrawer({ open, onClose, onOpenInterview }: { open: boolean; onClose: () => void; onOpenInterview: (id: string) => void }) {
   const [filter, setFilter] = useState<LearningFilter>('TO_REVIEW')
@@ -30,8 +32,11 @@ export function LearningDrawer({ open, onClose, onOpenInterview }: { open: boole
         <Space orientation="vertical" size="middle" className="profile-stack">
           <Tag color={item.sourceKind === 'BANK' ? 'blue' : 'purple'}>{item.sourceKind === 'BANK' ? '题库已有题' : '面试生成题 · 独立保存'}</Tag>
           <SafeMarkdown className="question-text">{item.prompt}</SafeMarkdown>
-          {item.answerContent ? <div className="recommendation-answer"><Typography.Text strong>当前适用资料答案</Typography.Text><SafeMarkdown className="answer-text">{item.answerContent}</SafeMarkdown></div>
-            : <Typography.Text type="secondary">当前没有适用的资料答案；模型反馈不会作为参考答案保存。</Typography.Text>}
+          {item.answerContent ? <div className="recommendation-answer"><AnswerOrigin sourceType={item.answerSourceType} /><SafeMarkdown className="answer-text">{item.answerContent}</SafeMarkdown></div>
+            : <Typography.Text type="secondary">当前没有适用答案。面试反馈与独立生成的 AI 补充答案分别保存。</Typography.Text>}
+          {item.questionId && <AiAnswerPanel questionId={item.questionId} questionVersion={item.questionVersion}
+            effectiveAiAnswerId={item.aiAnswerId}
+            hasPrimaryAnswer={Boolean(item.answerContent && item.answerSourceType !== 'AI_GENERATED')} />}
           <LearningSelect item={item} />
           {item.updatedAt && <Typography.Text type="secondary">最近自评：{new Date(item.updatedAt).toLocaleString()}</Typography.Text>}
           {item.sourceSessionId && <Button onClick={() => onOpenInterview(item.sourceSessionId!)}>回看来源面试与反馈</Button>}

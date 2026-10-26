@@ -4,10 +4,13 @@ import type { RecommendationItem } from '../api/client'
 import { SafeMarkdown } from './SafeMarkdown'
 import { SourceStatistics } from './SourceStatistics'
 import { QuestionLearning } from './LearningState'
+import { AnswerOrigin } from './AnswerOrigin'
+import { AiAnswerPanel } from './AiAnswerPanel'
 
 
 interface RecommendationItemCardProps {
   item: RecommendationItem
+  isCurrent: boolean
 }
 
 const technologyTags = (
@@ -27,8 +30,8 @@ const technologyTags = (
   )
 }
 
-export function RecommendationItemCard({ item }: RecommendationItemCardProps) {
-  const answerUnavailable = item.answerState === 'SOURCE_ANSWER' && item.usableAnswerState === 'MISSING'
+export function RecommendationItemCard({ item, isCurrent }: RecommendationItemCardProps) {
+  const answerUnavailable = Boolean(item.answerContent) && item.usableAnswerState === 'MISSING'
   return (
     <Card className={`recommendation-card recommendation-${item.decision.toLowerCase()}`}>
       <div className="recommendation-card-heading">
@@ -46,7 +49,8 @@ export function RecommendationItemCard({ item }: RecommendationItemCardProps) {
       </div>
 
       <SafeMarkdown className="recommendation-question">{item.prompt}</SafeMarkdown>
-      {item.questionId && <QuestionLearning questionId={item.questionId} questionVersion={item.questionVersion} answerVersion={item.answerVersion} />}
+      {item.questionId && <QuestionLearning questionId={item.questionId} questionVersion={item.questionVersion} answerVersion={item.answerVersion}
+        aiAnswerId={item.aiAnswerId} aiAnswerVersion={item.aiAnswerVersion} />}
       <SourceStatistics statistics={item.sourceStatistics} />
 
       {item.decision === 'INCLUDED' && (
@@ -63,17 +67,23 @@ export function RecommendationItemCard({ item }: RecommendationItemCardProps) {
 
       {item.answerContent && item.decision === 'INCLUDED' && (
         <div className={answerUnavailable ? 'recommendation-answer is-unavailable' : 'recommendation-answer'}>
-          <Typography.Text strong>资料答案</Typography.Text>
+          <AnswerOrigin sourceType={item.answerSourceType} />
           {answerUnavailable && (
             <Alert
               type="warning"
               showIcon
-              title="资料中有答案，但答案使用了当前排除或不匹配的技术"
+              title="已有答案使用了当前排除或不匹配的技术"
             />
           )}
           <SafeMarkdown>{item.answerContent}</SafeMarkdown>
         </div>
       )}
+
+      {item.questionId && item.decision === 'INCLUDED' && <AiAnswerPanel
+        questionId={item.questionId} questionVersion={item.questionVersion}
+        effectiveAiAnswerId={item.aiAnswerId}
+        hasPrimaryAnswer={Boolean(item.answerContent && item.answerSourceType !== 'AI_GENERATED')}
+        disabled={!isCurrent} />}
 
       <div className="recommendation-reasons" aria-label="筛选依据">
         <Typography.Text strong>筛选依据</Typography.Text>
