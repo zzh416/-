@@ -8,6 +8,7 @@ from app.modules.ingestion_service import process_ingestion_job
 from app.modules.question_extraction_service import process_question_extraction_run
 from app.modules.profile_service import process_profile_extraction as run_profile_extraction
 from uuid import UUID
+from app.modules.project_followup_service import process_project_followup as run_project_followup
 
 
 @celery_app.task(name="app.workers.tasks.echo")
@@ -32,3 +33,8 @@ def process_question_extraction(run_id: str) -> None:
 def process_profile_extraction(profile_id: str, expected_profile_version: int) -> None:
     """Extract an evidence-backed skill profile from the current resume version."""
     run_profile_extraction(UUID(profile_id), expected_profile_version)
+
+
+@celery_app.task(name="app.workers.tasks.process_project_followup")
+def process_project_followup(run_id: str) -> None:
+    run_project_followup(UUID(run_id))
