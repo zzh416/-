@@ -91,7 +91,7 @@ def delete_collection(
         select(Collection).where(
             Collection.id == collection_id,
             Collection.owner_id == owner_id,
-        )
+        ).with_for_update()
     )
     if collection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资料库不存在")

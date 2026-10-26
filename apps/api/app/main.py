@@ -1,16 +1,18 @@
 """FastAPI 应用入口。"""
+import json
 import logging
 import re
 import time
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import settings
-from app.routes import assets, collections, extractions, health, interviews, profile_projects, profiles, project_followups, questions, recommendations
+from app.routes import assets, collections, extractions, health, interviews, profile_projects, profiles, project_followups, questions, recommendations, url_imports
 
 app = FastAPI(
     title=settings.app_name,
@@ -18,6 +20,16 @@ app = FastAPI(
     docs_url="/api/docs",
     openapi_url="/api/openapi.json",
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_response(request: Request, exc: RequestValidationError):
+    # Do not echo submitted content or exception contexts. ASCII JSON also makes
+    # malformed Unicode inputs return 422 rather than fail response encoding.
+    errors = [{key: error[key] for key in ("loc", "msg", "type") if key in error}
+              for error in exc.errors()]
+    return Response(content=json.dumps({"detail": errors}, ensure_ascii=True),
+                    status_code=422, media_type="application/json")
 
 allowed_origins = {"http://localhost:5173", "http://127.0.0.1:5173"}
 request_id_pattern = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -97,6 +109,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(collections.router, prefix="/api/v1")
 app.include_router(assets.router, prefix="/api/v1")
+app.include_router(url_imports.router, prefix="/api/v1")
 app.include_router(questions.router, prefix="/api/v1")
 app.include_router(extractions.router, prefix="/api/v1")
 app.include_router(profiles.router, prefix="/api/v1")

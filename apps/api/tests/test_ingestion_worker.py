@@ -13,10 +13,56 @@ from app.adapters.browser_renderer import RenderedPage
 from app.config import settings
 from app.main import app
 from app.modules.safe_web import FetchedDocument, SafeWebError
-from app.modules.ingestion_service import process_ingestion_job
+from app.modules.ingestion_service import _AssetSnapshot, _extract, process_ingestion_job
 
 
 client = TestClient(app)
+
+
+@pytest.mark.parametrize(
+    ("fragment", "use_browser"),
+    [
+        ("#/chapter-one", True),
+        ("#!/chapter-two", True),
+        ("#answer", False),
+        ("#!answer", False),
+        ("", False),
+    ],
+)
+def test_web_extraction_prefers_browser_only_for_hash_routes(fragment: str, use_browser: bool) -> None:
+    url = f"https://example.com/handbook{fragment}"
+    calls: list[tuple[str, str]] = []
+    stages: list[str] = []
+    static_html = b"""<html><body><article><h1>Static article content</h1>
+        <p>A static SPA shell can contain enough text to look like an article.</p>
+        </article></body></html>"""
+    rendered_html = b"""<html><body><article><h1>Selected chapter content</h1>
+        <p>This chapter is selected by the complete hash route in the URL.</p>
+        </article></body></html>"""
+
+    def fetcher(source_url: str, **kwargs) -> FetchedDocument:
+        calls.append(("static", source_url))
+        return FetchedDocument(url=source_url, content_type="text/html", content=static_html)
+
+    def renderer(source_url: str, **kwargs) -> RenderedPage:
+        calls.append(("browser", source_url))
+        return RenderedPage(url=source_url, content_type="text/html", content=rendered_html, title=None)
+
+    result = _extract(
+        _AssetSnapshot(
+            id=uuid4(), owner_id=uuid4(), source_format="WEB_PAGE", source_url=url,
+            storage_key=None, title="Handbook",
+        ),
+        ocr_extractor=None,
+        web_fetcher=fetcher,
+        browser_renderer=renderer,
+        stage_reporter=stages.append,
+    )
+
+    assert ("Selected chapter content" if use_browser else "Static article content") in result.content
+    assert calls == [("browser" if use_browser else "static", url)]
+    assert stages == (["RENDERING"] if use_browser else [])
+    assert result.fetched is not None and result.fetched.url == url
 
 
 def _create_collection() -> str:

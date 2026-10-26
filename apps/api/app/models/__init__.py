@@ -1,3 +1,4 @@
+from app.models.url_imports import UrlImportBatch, UrlImportItem
 from app.models.core import (
     Answer,
     AnswerRevision,
@@ -24,6 +25,8 @@ from app.models.core import (
 )
 
 __all__ = [
+    "UrlImportBatch",
+    "UrlImportItem",
     "Answer",
     "AnswerRevision",
     "Asset",

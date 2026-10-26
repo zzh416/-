@@ -155,22 +155,25 @@ def _extract(
         if not asset.source_url:
             raise IngestionParseError("WEB_URL_MISSING", "网页资料缺少来源地址")
         rendered_title: str | None = None
-        try:
-            fetched = web_fetcher(
-                asset.source_url,
-                max_bytes=settings.max_url_response_bytes,
-                timeout=settings.ingestion_http_timeout_seconds,
-            )
+        fetched: FetchedDocument | None = None
+        # Hash routes select client-side content, even when the static shell has text.
+        if not urlsplit(asset.source_url).fragment.startswith(("/", "!/")):
             try:
-                parsed = extract_webpage(fetched.content, fetched.url)
-            except IngestionParseError as exc:
-                if exc.code != "WEB_CONTENT_EMPTY":
+                fetched = web_fetcher(
+                    asset.source_url,
+                    max_bytes=settings.max_url_response_bytes,
+                    timeout=settings.ingestion_http_timeout_seconds,
+                )
+                try:
+                    parsed = extract_webpage(fetched.content, fetched.url)
+                except IngestionParseError as exc:
+                    if exc.code != "WEB_CONTENT_EMPTY":
+                        raise
+                    fetched = None
+            except SafeWebError as exc:
+                if exc.code not in _BROWSER_FALLBACK_FETCH_ERRORS:
                     raise
                 fetched = None
-        except SafeWebError as exc:
-            if exc.code not in _BROWSER_FALLBACK_FETCH_ERRORS:
-                raise
-            fetched = None
 
         if fetched is None:
             stage_reporter("RENDERING")

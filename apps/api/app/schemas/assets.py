@@ -103,6 +103,7 @@ class IngestionUnitFailureView(APIModel):
 
 class IngestionJobView(APIModel):
     id: UUID
+    celery_task_id: str | None = None
     status: JobStatus
     stage: str
     processed_units: int

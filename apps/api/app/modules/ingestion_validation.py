@@ -106,7 +106,8 @@ def normalize_public_url(value: str) -> str:
         address = None
     if address is not None and not address.is_global:
         raise ValueError("网页地址不能指向本机或内网")
-    netloc = hostname
-    if port is not None:
-        netloc = f"{hostname}:{port}"
-    return urlunsplit((parsed.scheme, netloc, parsed.path or "/", parsed.query, ""))
+    netloc = f"[{hostname}]" if ":" in hostname else hostname
+    default_port = 443 if parsed.scheme == "https" else 80
+    if port is not None and port != default_port:
+        netloc = f"{netloc}:{port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path or "/", parsed.query, parsed.fragment))

@@ -25,7 +25,6 @@ export function normalizePublicUrl(value) {
   if (!['80', '443'].includes(port)) {
     throw new UrlSecurityError('WEB_URL_INVALID', '网页地址只支持 80 或 443 端口')
   }
-  parsed.hash = ''
   return parsed
 }
 
