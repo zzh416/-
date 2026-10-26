@@ -12,7 +12,7 @@ from app.idempotency import remember_request, replay_resource_id, request_hash
 from app.models import InterviewSession, RecommendationItem, User
 from app.modules import interview_engine as engine
 from app.modules.interview_service import _fail_state, current, make_plan, now, prompt_hash, save
-from app.routes.recommendations import _owned_run, _run_view
+from app.routes.recommendations import _owned_run, _profile_context, _rule_context, _run_view
 from app.schemas.interviews import InterviewAction, InterviewAnswer, InterviewCreate, InterviewDraft, InterviewHistory, InterviewView
 from app.workers.celery_app import celery_app
 
@@ -35,7 +35,7 @@ def _view(db, row):
         plan = [{"id": item["id"], "kind": item["kind"], "topics": item["topics"]} for item in plan]
     retry = row.job_started_at and (now() - row.job_started_at).total_seconds() > 600
     return InterviewView(id=row.id, version=row.version, status=row.status, server_now=now(), is_current=current(db, row),
-        mode=state["mode"], question_count=state["question_count"], question_seconds=state["question_seconds"], plan=plan,
+        mode=state["mode"], question_source=state.get("question_source", "HYBRID"), question_count=state["question_count"], question_seconds=state["question_seconds"], plan=plan,
         turns=state["turns"], blind_topics=state["blind_topics"], skipped_plan_count=len(state["skipped_plan_ids"]), notice=state.get("notice", ""),
         finished_reason=state.get("finished_reason"), planning_error=state.get("planning_error"), model=state.get("model"), job_stage=state["job_stage"],
         can_retry=bool(retry or row.status == "PLAN_FAILED" or (row.status == "AWAITING_NEXT" and state["turns"] and state["turns"][-1].get("review_error"))), created_at=row.created_at)
@@ -69,15 +69,25 @@ def create_interview(payload: InterviewCreate, db: Session = Depends(get_db), ow
     replay = replay_resource_id(db, owner_id, "interview:create", idempotency_key, digest)
     if replay:
         return _view(db, _owned(db, replay, owner_id))
-    run = _owned_run(db, payload.recommendation_run_id, owner_id)
-    if not _run_view(db, run, owner_id).is_current:
-        raise HTTPException(status_code=409, detail="请先按当前画像和偏好重新生成复习清单")
+    run = _owned_run(db, payload.recommendation_run_id, owner_id) if payload.recommendation_run_id else None
+    if payload.question_source == "AI":
+        _, profile_version, profile_snapshot, _ = _profile_context(db, owner_id)
+        rule_snapshot, _, rules_fingerprint = _rule_context(db, owner_id)
+        run = None
+    else:
+        if not _run_view(db, run, owner_id).is_current:
+            raise HTTPException(status_code=409, detail="请先按当前画像和偏好重新生成复习清单")
+        profile_snapshot, profile_version, rule_snapshot = run.profile_snapshot, run.profile_version, run.rule_snapshot
+        rules_fingerprint = run.rules_fingerprint
     if db.scalar(select(InterviewSession.id).where(InterviewSession.owner_id == owner_id, InterviewSession.status != "COMPLETED")):
         raise HTTPException(status_code=409, detail="已有未结束的面试，请先继续或结束上一轮")
-    confirmed = [item for item in run.profile_snapshot.get("projects", []) if item["review_status"] == "CONFIRMED"]
+    confirmed = [item for item in profile_snapshot.get("projects", []) if item["review_status"] == "CONFIRMED"]
+    confirmed_skills = [item for item in profile_snapshot.get("skills", []) if item["review_status"] == "CONFIRMED"]
+    if payload.question_source == "AI" and not confirmed and not confirmed_skills:
+        raise HTTPException(status_code=409, detail="AI自主出题需要至少一项已确认技能或一个已确认项目，请先在我的画像中补充确认")
     if payload.project_id and not any(item["id"] == str(payload.project_id) for item in confirmed):
         raise HTTPException(status_code=422, detail="请选择当前画像中已确认的项目")
-    questions = db.scalars(select(RecommendationItem).where(RecommendationItem.run_id == run.id, RecommendationItem.decision == "INCLUDED").order_by(RecommendationItem.position)).all()
+    questions = db.scalars(select(RecommendationItem).where(RecommendationItem.run_id == run.id, RecommendationItem.decision == "INCLUDED").order_by(RecommendationItem.position)).all() if run else []
     pool, length = [], 0
     for item in questions:
         if payload.project_id and not any(match["project_id"] == str(payload.project_id) for match in item.project_matches or []):
@@ -88,19 +98,32 @@ def create_interview(payload: InterviewCreate, db: Session = Depends(get_db), ow
         pool.append({"id": str(item.id), "prompt": item.prompt, "source_statistics": item.source_statistics, "project_id": project_id,
                      "reference_answer": item.answer_content[:3000] if item.usable_answer_state == "ANSWERED" and item.answer_content else None})
         length += len(item.prompt)
-    if not pool and not confirmed:
-        raise HTTPException(status_code=409, detail="请先补充可用题目或已确认项目")
+    if payload.question_source == "BANK" and not pool:
+        raise HTTPException(status_code=409, detail="当前范围没有可用题库题，请调整范围或选择AI自主出题")
+    if not pool and not confirmed and not confirmed_skills:
+        raise HTTPException(status_code=409, detail="请先补充可用题目、已确认技能或项目")
     relevant = [item for item in confirmed if not payload.project_id or item["id"] == str(payload.project_id)]
-    if length + sum(len(item["description"]) for item in relevant) > 60_000:
+    if length + sum(len(item["description"]) for item in relevant) + sum(len(s["canonical_name"]) + len(s["display_name"]) for s in confirmed_skills) > 60_000:
         raise HTTPException(status_code=422, detail="候选题和项目说明合计过长，请缩小到一个项目")
-    state = {"status": "PLANNING", "mode": payload.mode, "project_id": str(payload.project_id) if payload.project_id else None,
+    state = {"status": "PLANNING", "mode": payload.mode, "question_source": payload.question_source,
+             "profile_version": profile_version, "rules_fingerprint": rules_fingerprint, "project_id": str(payload.project_id) if payload.project_id else None,
              "question_count": payload.question_count, "question_seconds": payload.question_seconds, "candidates": pool,
-             "existing_prompt_hashes": [prompt_hash(item.prompt) for item in questions], "profile_snapshot": run.profile_snapshot, "rule_snapshot": run.rule_snapshot,
+             "existing_prompt_hashes": [prompt_hash(item.prompt) for item in questions], "profile_snapshot": profile_snapshot, "rule_snapshot": rule_snapshot,
              "plan": [], "turns": [], "cursor": 0, "blind_topics": [], "skipped_plan_ids": [], "job_stage": "QUEUED", "plan_attempts": 0}
-    row = InterviewSession(owner_id=owner_id, recommendation_run_id=run.id, status="PLANNING", state=state)
+    if payload.question_source == "BANK":
+        state["plan"] = make_plan(state)
+        state["status"], state["job_stage"], state["candidates"] = "READY", "IDLE", []
+        if not state["plan"]:
+            raise HTTPException(status_code=409, detail="当前范围没有通过筛选的题库题")
+        if len(state["plan"]) < payload.question_count:
+            state["notice"] = f"当前范围只有{len(state['plan'])}道题库题，本轮不会自动补充AI题。"
+    row = InterviewSession(owner_id=owner_id, recommendation_run_id=run.id if run else None, status=state["status"], state=state)
     db.add(row); db.flush()
     remember_request(db, owner_id, "interview:create", idempotency_key, digest, row.id)
-    db.commit(); _dispatch(db, row); db.refresh(row)
+    db.commit()
+    if row.status == "PLANNING":
+        _dispatch(db, row)
+    db.refresh(row)
     return _view(db, row)
 
 
@@ -151,10 +174,13 @@ def act(session_id: UUID, payload: InterviewAction, db: Session = Depends(get_db
     queue = False
     try:
         if payload.action == "USE_BANK" and row.status in {"PLANNING", "PLAN_FAILED"}:
+            if state.get("question_source") == "AI":
+                raise ValueError("AI自主出题没有题库候选，请重试AI出题或结束后切换出题来源")
             state["plan"] = make_plan(state)
             if not state["plan"]:
                 raise ValueError("当前没有可用题库题目，请先补充资料")
             state["status"], state["job_stage"], state["planning_error"] = "READY", "IDLE", None
+            state["question_source"] = "BANK"
             state["candidates"] = []
             state["notice"] = "本轮明确改用已有题库计划，未使用AI出题结果。"
         elif payload.action == "RETRY_PLAN" and row.status in {"PLAN_FAILED", "PLANNING"}:

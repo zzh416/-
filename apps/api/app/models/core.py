@@ -515,7 +515,7 @@ class InterviewSession(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    recommendation_run_id: Mapped[UUID] = mapped_column(ForeignKey("recommendation_runs.id", ondelete="CASCADE"))
+    recommendation_run_id: Mapped[UUID | None] = mapped_column(ForeignKey("recommendation_runs.id", ondelete="CASCADE"), nullable=True)
     status: Mapped[str] = mapped_column(String(32))
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     state: Mapped[dict] = mapped_column(JSON)

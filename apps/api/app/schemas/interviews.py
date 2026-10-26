@@ -2,18 +2,25 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from app.schemas.common import APIModel
 from app.schemas.sources import SourceStatistics
 
 
 class InterviewCreate(APIModel):
-    recommendation_run_id: UUID
+    recommendation_run_id: UUID | None = None
+    question_source: Literal["BANK", "AI", "HYBRID"] = "HYBRID"
     project_id: UUID | None = None
     question_count: int = Field(default=8, ge=3, le=12)
     question_seconds: int = Field(default=180, ge=60, le=900)
     mode: Literal["MOCK", "PREVIEW"] = "MOCK"
+
+    @model_validator(mode="after")
+    def bank_requires_run(self):
+        if self.question_source != "AI" and self.recommendation_run_id is None:
+            raise ValueError("题库和混合出题需要当前复习清单")
+        return self
 
 
 class InterviewVersion(APIModel):
@@ -42,6 +49,7 @@ class PlanItemView(APIModel):
     reason: str = ""
     project_name: str | None = None
     project_quote: str | None = None
+    skill_basis: str | None = None
     source_statistics: SourceStatistics | None = None
 
 
@@ -86,6 +94,7 @@ class InterviewView(APIModel):
     server_now: datetime
     is_current: bool
     mode: str
+    question_source: Literal["BANK", "AI", "HYBRID"] = "HYBRID"
     question_count: int
     question_seconds: int
     plan: list[PlanItemView]

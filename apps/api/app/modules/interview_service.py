@@ -15,8 +15,8 @@ from app.modules import interview_engine as engine
 from app.modules.project_matching import _topics, match_projects, prepare_projects
 from app.modules.question_extraction_service import initial_review_status
 from app.modules.question_identity import question_identity
-from app.modules.recommendation_service import PreferenceSnapshot, SkillSnapshot, build_recommendation
-from app.routes.recommendations import _run_view
+from app.modules.recommendation_service import PreferenceSnapshot, SkillSnapshot, _alias_pattern, _related_to_skill, build_recommendation, detect_technologies
+from app.routes.recommendations import _profile_context, _rule_context, _run_view
 
 
 def now():
@@ -24,6 +24,10 @@ def now():
 
 
 def current(db, row):
+    if row.state.get("question_source") == "AI":
+        _, version, _, _ = _profile_context(db, row.owner_id)
+        _, _, fingerprint = _rule_context(db, row.owner_id)
+        return row.state.get("profile_version") == version and row.state.get("rules_fingerprint") == fingerprint
     run = db.get(RecommendationRun, row.recommendation_run_id)
     return bool(run and run.owner_id == row.owner_id and _run_view(db, run, row.owner_id).is_current)
 
@@ -49,7 +53,13 @@ def prompt_hash(prompt):
 
 def make_plan(state, result=None):
     pool = {item["id"]: item for item in state["candidates"]}
-    selected = [(pool[str(item.item_id)], item.reason) for item in result.selected if str(item.item_id) in pool] if result else [(item, "沿用题库筛选结果") for item in state["candidates"]]
+    source = state.get("question_source", "HYBRID")
+    selected = []
+    if source != "AI":
+        if result is None:
+            selected = [(item, "沿用题库筛选结果") for item in state["candidates"]]
+        else:
+            selected = [(pool[str(item.item_id)], item.reason) for item in result.selected if str(item.item_id) in pool]
     plan, seen = [], set()
     for item, reason in selected:
         identity = question_identity(item["prompt"])
@@ -60,7 +70,7 @@ def make_plan(state, result=None):
         if len(plan) >= state["question_count"]:
             break
     # Fill with valid bank questions first, even if the model selected too few.
-    if len(plan) < state["question_count"] and result:
+    if source != "AI" and len(plan) < state["question_count"] and result:
         for item in make_plan({**state, "question_count": state["question_count"]}):
             if question_identity(item["prompt"]) not in seen:
                 plan.append(item); seen.add(question_identity(item["prompt"]))
@@ -68,20 +78,40 @@ def make_plan(state, result=None):
                 break
     project_map = {item["id"]: item for item in projects(state)}
     known = set(state["existing_prompt_hashes"]) | {prompt_hash(item["prompt"]) for item in plan}
-    for item in result.new_questions if result else []:
+    for item in result.new_questions if result and source != "BANK" else []:
         project = project_map.get(str(item.project_id))
         identity = prompt_hash(item.question)
         if len(plan) >= state["question_count"]:
             break
-        if not project or identity in known or item.project_quote not in project["description"] or not allowed(state, item.question):
+        if identity in known or not allowed(state, item.question):
             continue
-        if not match_projects(item.question, prepare_projects([project])):
+        basis = _question_basis(state, item, project)
+        if basis is None:
             continue
         known.add(identity)
         plan.append({"id": str(uuid4()), "prompt": item.question, "kind": "AI", "reason": item.reason,
-                     "project_id": project["id"], "project_name": project["name"], "project_quote": item.project_quote,
+                     **basis,
                      "reference_answer": None, "source_statistics": None, "topics": sorted(_topics(item.question)) or ["通用基础"]})
     return plan
+
+
+def _question_basis(state, item, project):
+    if item.project_id is not None:
+        if item.skill or not project or not item.project_quote or item.project_quote not in project["description"]:
+            return None
+        if not match_projects(item.question, prepare_projects([project])):
+            return None
+        return {"project_id": project["id"], "project_name": project["name"], "project_quote": item.project_quote, "skill_basis": None}
+    if state["project_id"] or item.project_quote or not item.skill:
+        return None
+    skill = next((s for s in state["profile_snapshot"]["skills"] if s["review_status"] == "CONFIRMED"
+                  and item.skill.casefold() in {s["canonical_name"].casefold(), s["display_name"].casefold()}), None)
+    if not skill:
+        return None
+    related = any(_related_to_skill(skill["canonical_name"], t.canonical_name) for t in detect_technologies(item.question))
+    if not related and not any(_alias_pattern(name).search(item.question) for name in (skill["canonical_name"], skill["display_name"])):
+        return None
+    return {"project_id": None, "project_name": None, "project_quote": None, "skill_basis": skill["display_name"]}
 
 
 def save(db, row, state):
@@ -93,7 +123,9 @@ def save(db, row, state):
 def _payload(state):
     skills, rules = constraints(state)
     return {"target_role": state["profile_snapshot"].get("target_role"),
+            "question_source": state.get("question_source", "HYBRID"),
             "confirmed_skills": [item.canonical_name for item in skills if item.review_status == "CONFIRMED"],
+            "confirmed_skill_details": [{"canonical_name": item.canonical_name, "display_name": item.display_name} for item in skills if item.review_status == "CONFIRMED"],
             "excluded_technologies": [item.technology for item in rules if item.rule_type == "EXCLUDE" and item.scope in {"QUESTION", "BOTH"}],
             "projects": [{"id": item["id"], "name": item["name"], "description": item["description"]} for item in projects(state)]}
 
@@ -121,7 +153,9 @@ def process_interview(session_id: UUID, *, planner=generate_interview_plan, revi
             result = planner(payload, api_key=config.api_key, base_url=config.base_url, model=config.model, provider=config.provider)
             state["plan"] = make_plan(state, result)
             if not state["plan"]:
-                raise TextModelError("INTERVIEW_EMPTY_PLAN", "没有通过筛选的题目，请补充题库或项目", retryable=False)
+                raise TextModelError("INTERVIEW_EMPTY_PLAN", "没有通过依据和偏好校验的题目，请核对已确认技能、项目和排除规则后重试", retryable=False)
+            if len(state["plan"]) < state["question_count"]:
+                state["notice"] = f"通过依据与排除校验的题目为{len(state['plan'])}道，少于目标{state['question_count']}道；可用现有题目开始。"
             state["status"], state["planning_error"] = "READY", None
             state["candidates"] = []
         else:
