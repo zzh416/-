@@ -9,6 +9,7 @@ from app.modules.question_extraction_service import process_question_extraction_
 from app.modules.profile_service import process_profile_extraction as run_profile_extraction
 from uuid import UUID
 from app.modules.project_followup_service import process_project_followup as run_project_followup
+from app.modules.interview_service import process_interview as run_interview
 
 
 @celery_app.task(name="app.workers.tasks.echo")
@@ -38,3 +39,8 @@ def process_profile_extraction(profile_id: str, expected_profile_version: int) -
 @celery_app.task(name="app.workers.tasks.process_project_followup")
 def process_project_followup(run_id: str) -> None:
     run_project_followup(UUID(run_id))
+
+
+@celery_app.task(name="app.workers.tasks.process_interview")
+def process_interview(session_id: str) -> None:
+    run_interview(UUID(session_id))

@@ -510,6 +510,21 @@ class ProjectFollowupRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class InterviewSession(Base):
+    __tablename__ = "interview_sessions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    recommendation_run_id: Mapped[UUID] = mapped_column(ForeignKey("recommendation_runs.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(32))
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    state: Mapped[dict] = mapped_column(JSON)
+    job_token: Mapped[UUID | None] = mapped_column(nullable=True)
+    job_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class IdempotencyRecord(Base):
     __tablename__ = "idempotency_records"
     __table_args__ = (
