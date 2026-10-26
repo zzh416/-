@@ -192,3 +192,56 @@ def test_legacy_session_and_ai_profile_version_fences(sources):
     assert not read(ai)['isCurrent']
     process_interview(UUID(ai['id']),planner=python_plan)
     assert read(ai)['status'] == 'PLAN_FAILED'
+
+
+def skill_questions(start,count):
+    subjects=['生成器','异常处理','字典扩容','上下文管理','内存释放','并发模型','参数传递','类型注解']
+    return InterviewPlan(selected=[],new_questions=[{'question':f'Python {subjects[i]}的原理与使用场景是什么？','skill':'python','reason':'技能基础'} for i in range(start,start+count)])
+
+
+def test_requested_eight_are_filled_and_progress_preserves_first_three(sources):
+    session=create(questionCount=8).json()
+    calls=[]
+    first_ids=[]
+    def planner(payload,**kwargs):
+        calls.append(payload)
+        if len(calls)==1:
+            return skill_questions(0,3)
+        progress=read(session)
+        first_ids.extend(i['id'] for i in progress['plan'])
+        assert progress['planningDiagnostics']['acceptedCount']==3
+        assert payload['question_count']==5 and len(payload['existing_questions'])==3
+        return skill_questions(3,5)
+    process_interview(UUID(session['id']),planner=planner)
+    saved=read(session)
+    assert saved['status']=='READY' and len(saved['plan'])==8
+    assert [i['id'] for i in saved['plan'][:3]]==first_ids
+    assert saved['planningDiagnostics']['modelCalls']==2
+
+
+def test_partial_plan_can_be_supplemented_before_start_without_replacing_questions(sources):
+    session=create(questionCount=8).json()
+    process_interview(UUID(session['id']),planner=lambda *a,**k:skill_questions(0,3))
+    partial=read(session)
+    assert len(partial['plan'])==3 and partial['planningDiagnostics']['exhausted']
+    ids=[i['id'] for i in partial['plan']]
+    supplement=action(partial,'SUPPLEMENT_PLAN')
+    assert supplement.status_code==200 and supplement.json()['status']=='PLANNING'
+    process_interview(UUID(session['id']),planner=lambda *a,**k:skill_questions(3,5))
+    complete=read(session)
+    assert len(complete['plan'])==8 and [i['id'] for i in complete['plan'][:3]]==ids
+    assert complete['planAttempts']==1
+    assert action(complete,'SUPPLEMENT_PLAN').status_code==409
+    active=action(complete,'START').json()
+    assert action(active,'SUPPLEMENT_PLAN').status_code==409
+
+
+def test_refill_stops_if_user_finishes_during_request(sources):
+    session=create(questionCount=8).json()
+    calls=[]
+    def planner(payload,**kwargs):
+        calls.append(payload)
+        action(read(session),'FINISH').raise_for_status()
+        return skill_questions(0,3)
+    process_interview(UUID(session['id']),planner=planner)
+    assert len(calls)==1 and read(session)['status']=='COMPLETED' and read(session)['plan']==[]

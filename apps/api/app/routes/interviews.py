@@ -38,7 +38,8 @@ def _view(db, row):
         mode=state["mode"], question_source=state.get("question_source", "HYBRID"), question_count=state["question_count"], question_seconds=state["question_seconds"], plan=plan,
         turns=state["turns"], blind_topics=state["blind_topics"], skipped_plan_count=len(state["skipped_plan_ids"]), notice=state.get("notice", ""),
         finished_reason=state.get("finished_reason"), planning_error=state.get("planning_error"), model=state.get("model"), job_stage=state["job_stage"],
-        can_retry=bool(retry or row.status == "PLAN_FAILED" or (row.status == "AWAITING_NEXT" and state["turns"] and state["turns"][-1].get("review_error"))), created_at=row.created_at)
+        can_retry=bool(retry or row.status == "PLAN_FAILED" or (row.status == "AWAITING_NEXT" and state["turns"] and state["turns"][-1].get("review_error"))),
+        plan_attempts=state.get("plan_attempts", 0), planning_diagnostics=state.get("planning_diagnostics"), created_at=row.created_at)
 
 
 def _dispatch(db, row):
@@ -189,6 +190,17 @@ def act(session_id: UUID, payload: InterviewAction, db: Session = Depends(get_db
             if state["plan_attempts"] >= 3:
                 raise ValueError("出题重试已达3次上限")
             state["plan_attempts"] += 1
+            if state.get("planning_diagnostics"):
+                state["planning_history"] = (state.get("planning_history", []) + [state.pop("planning_diagnostics")])[-3:]
+            state["status"], state["job_stage"], state["planning_error"], queue = "PLANNING", "QUEUED", None, True
+        elif payload.action == "SUPPLEMENT_PLAN" and row.status == "READY":
+            if state.get("question_source") == "BANK" or state["turns"] or len(state["plan"]) >= state["question_count"]:
+                raise ValueError("仅未开始且题数不足的AI或混合面试可以补题")
+            if state["plan_attempts"] >= 3:
+                raise ValueError("出题重试和手动补题已达3次上限")
+            state["plan_attempts"] += 1
+            if state.get("planning_diagnostics"):
+                state["planning_history"] = (state.get("planning_history", []) + [state.pop("planning_diagnostics")])[-3:]
             state["status"], state["job_stage"], state["planning_error"], queue = "PLANNING", "QUEUED", None, True
         elif payload.action == "RETRY_REVIEW" and row.status in {"AWAITING_NEXT", "REVIEWING"}:
             turn = state["turns"][-1]

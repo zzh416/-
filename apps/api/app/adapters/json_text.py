@@ -7,11 +7,11 @@ from app.adapters.glm_errors import provider_error_code
 from app.adapters.glm_text import TextModelError, TextModelNotConfigured
 
 
-def request_json(payload, *, system_prompt, api_key, base_url, model, provider, client=None, prefix="INTERVIEW", label="面试"):
+def request_json(payload, *, system_prompt, api_key, base_url, model, provider, client=None, prefix="INTERVIEW", label="面试", timeout_seconds=120):
     if not api_key.strip():
         raise TextModelNotConfigured("尚未配置文本模型 API Key")
     own = client is None
-    active = client or httpx.Client(timeout=httpx.Timeout(120, connect=20))
+    active = client or httpx.Client(timeout=httpx.Timeout(timeout_seconds, connect=min(20, timeout_seconds)))
     try:
         try:
             with active.stream("POST", f"{base_url.rstrip('/')}/chat/completions", headers={"Authorization": f"Bearer {api_key}"}, json={
@@ -36,7 +36,15 @@ def request_json(payload, *, system_prompt, api_key, base_url, model, provider, 
             choice = json.loads(raw)["choices"][0]
             if choice.get("finish_reason") in {"length", "max_tokens"}:
                 raise TextModelError(f"{prefix}_OUTPUT_TRUNCATED", f"{label}结果过长被截断，请减少输入后重试", retryable=True)
-            return json.loads(choice["message"]["content"])
+            content = choice["message"]["content"]
+            if not isinstance(content, str):
+                raise TypeError("Model content must be text")
+            content = content.strip()
+            if content.startswith("```") and content.endswith("```"):
+                first_line, separator, body = content.partition("\n")
+                if separator and first_line.lower() in {"```", "```json"}:
+                    content = body[:-3].strip()
+            return json.loads(content)
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise TextModelError(f"{prefix}_INVALID_RESPONSE", f"{label}模型返回了不符合约定的结果", retryable=False) from exc
     finally:

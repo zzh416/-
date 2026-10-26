@@ -29,7 +29,7 @@ class InterviewVersion(APIModel):
 
 
 class InterviewAction(InterviewVersion):
-    action: Literal["START", "PAUSE", "RESUME", "EXTEND", "NEXT", "FOLLOWUP", "FINISH", "USE_BANK", "RETRY_PLAN", "RETRY_REVIEW"]
+    action: Literal["START", "PAUSE", "RESUME", "EXTEND", "NEXT", "FOLLOWUP", "FINISH", "USE_BANK", "RETRY_PLAN", "RETRY_REVIEW", "SUPPLEMENT_PLAN"]
     seconds: int = Field(default=60, ge=30, le=300)
 
 
@@ -87,6 +87,18 @@ class TurnView(PlanItemView):
     question_quote: str | None = None
 
 
+class PlanningDiagnosticsView(APIModel):
+    target_count: int
+    accepted_count: int
+    model_calls: int
+    returned_count: int
+    format_issue_count: int
+    rejection_counts: dict[str, int]
+    errors: list[str]
+    schema_paths: list[str]
+    exhausted: bool
+
+
 class InterviewView(APIModel):
     id: UUID
     version: int
@@ -107,6 +119,8 @@ class InterviewView(APIModel):
     model: str | None = None
     job_stage: str
     can_retry: bool
+    plan_attempts: int = 0
+    planning_diagnostics: PlanningDiagnosticsView | None = None
     created_at: datetime
 
 
