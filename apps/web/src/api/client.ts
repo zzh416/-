@@ -802,3 +802,41 @@ export const fetchRecommendationItems = (
     `/api/v1/recommendation-runs/${runId}/items?${params.toString()}`,
   )
 }
+
+export type FollowupStatus = 'QUEUED' | 'PROCESSING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'WAITING_FOR_CONFIGURATION' | 'FAILED'
+
+export interface ProjectFollowupRun {
+  id: string
+  recommendationRunId: string
+  projectSnapshot: ProfileProject
+  seeds: Array<{ id: string; questionId: string | null; questionVersion: number; prompt: string; sourceStatistics: SourceStatistics | null }>
+  items: Array<{ id: string; parentId: string | null; seedItemId: string; level: number; question: string; projectQuote: string; seedQuote: string; projectStart: number; projectEnd: number; seedStart: number; seedEnd: number }>
+  status: FollowupStatus
+  algorithmVersion: string
+  provider: string | null
+  model: string | null
+  retryCount: number
+  errorCode: string | null
+  errorMessage: string | null
+  rejectionCounts: Record<string, number>
+  isCurrent: boolean
+  canRetry: boolean
+  createdAt: string
+}
+
+export const createProjectFollowups = (runId: string, input: { projectId: string; seedItemIds: string[] }) =>
+  apiRequest<ProjectFollowupRun>(`/api/v1/recommendation-runs/${runId}/project-followups`, idempotentCreate(input))
+
+export const fetchProjectFollowup = (id: string) => apiRequest<ProjectFollowupRun>(`/api/v1/project-followup-runs/${id}`)
+
+export const fetchProjectFollowupHistory = (projectId: string) =>
+  apiRequest<{ items: Array<{ id: string; status: FollowupStatus; createdAt: string; recommendationRunId: string }> }>(`/api/v1/project-followup-runs?projectId=${projectId}`)
+
+export const retryProjectFollowup = (id: string) =>
+  apiRequest<ProjectFollowupRun>(`/api/v1/project-followup-runs/${id}/retry`, idempotentCreate({}))
+
+export async function fetchProjectFollowupExport(id: string): Promise<Blob> {
+  const response = await checkedResponse(`/api/v1/project-followup-runs/${id}/export`)
+  if (!response.headers.get('Content-Type')?.startsWith('text/markdown')) throw new Error('下载格式异常，请刷新后重试')
+  return response.blob()
+}

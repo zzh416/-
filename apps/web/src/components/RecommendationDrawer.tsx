@@ -11,6 +11,7 @@ import {
 } from '../api/client'
 import { RecommendationItemCard } from './RecommendationItemCard'
 import { RecommendationExportButton } from './RecommendationExportButton'
+import { ProjectFollowupsButton } from './ProjectFollowupsButton'
 
 
 interface RecommendationDrawerProps {
@@ -121,7 +122,10 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
           </Typography.Paragraph>
 
           <Typography.Paragraph>
-            <RecommendationExportButton key={run.id} run={run} notify={notify} />
+            <Space wrap>
+              <RecommendationExportButton key={run.id} run={run} notify={notify} />
+              <ProjectFollowupsButton key={`followups-${run.id}`} run={run} initialProjectId={projectFilter} notify={notify} />
+            </Space>
           </Typography.Paragraph>
 
           {run.profileSnapshot.projects.length === 0 && (

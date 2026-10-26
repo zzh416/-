@@ -8,7 +8,7 @@ from app.adapters.glm_text import TextModelError, TextModelNotConfigured
 from app.adapters.project_followups import generate_project_followups
 from app.adapters.text_provider import get_text_model_config
 from app.db import SessionLocal
-from app.models import ProjectFollowupRun, RecommendationRun
+from app.models import ProjectFollowupRun, RecommendationRun, RecommendationItem
 from app.modules.followup_validation import validate_followups
 from app.modules.recommendation_service import PreferenceSnapshot, SkillSnapshot
 from app.routes.recommendations import _run_view
@@ -56,6 +56,7 @@ def process_project_followup(run_id: UUID, *, generator=generate_project_followu
             return
         project, seeds = run.project_snapshot, run.seeds
         recommendation = db.get(RecommendationRun, run.recommendation_run_id)
+        existing_prompts = db.scalars(select(RecommendationItem.prompt).where(RecommendationItem.run_id == run.recommendation_run_id)).all()
         skills = [SkillSnapshot(**item) for item in recommendation.profile_snapshot["skills"]]
         rules = [PreferenceSnapshot(item["rule_type"], item["canonical_technology"], item["technology"], item["category"], item["scope"]) for item in recommendation.rule_snapshot]
         db.commit()
@@ -67,7 +68,7 @@ def process_project_followup(run_id: UUID, *, generator=generate_project_followu
     }
     try:
         candidates = generator(payload, api_key=config.api_key, base_url=config.base_url, model=config.model, provider=config.provider)
-        items, rejected = validate_followups(project, seeds, candidates, skills=skills, rules=rules)
+        items, rejected = validate_followups(project, seeds, candidates, skills=skills, rules=rules, existing_prompts=existing_prompts)
         if not items:
             _finish(run_id, attempt, status="FAILED", code="FOLLOWUP_NO_VALID_ITEMS", message="没有通过依据与筛选校验的追问，可更换种子题重试", rejections=rejected)
         else:

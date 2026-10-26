@@ -175,3 +175,24 @@ def test_stale_admission_and_input_size_are_rejected(context):
     assert create(context).status_code == 422
     client.put("/api/v1/profiles/me/target-role", json={"targetRole": "新岗位", "expectedVersion": context["profile"]["version"]})
     assert create(context).status_code == 409
+
+
+def test_expired_jobs_can_retry_without_accepting_late_previous_attempt(context, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from app.models import ProjectFollowupRun
+    from app.modules.project_followup_service import _finish, process_project_followup
+    model_config(monkeypatch)
+    run = create(context).json()
+    run_id = UUID(run["id"])
+    with SessionLocal() as db:
+        db.get(ProjectFollowupRun, run_id).updated_at = datetime.now(timezone.utc) - timedelta(seconds=601)
+        db.commit()
+    path = f"/api/v1/project-followup-runs/{run_id}"
+    assert client.get(path).json()["canRetry"]
+    assert client.post(path + "/retry").json()["retryCount"] == 1
+    def generator(*args, **kwargs):
+        _finish(run_id, 0, status="FAILED", code="OLD_ATTEMPT", message="过时的响应")
+        assert client.get(path).json()["status"] == "PROCESSING"
+        return fake_output(context)
+    process_project_followup(run_id, generator=generator)
+    assert client.get(path).json()["status"] == "SUCCEEDED"

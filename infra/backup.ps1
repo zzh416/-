@@ -53,6 +53,23 @@ try {
         throw "仍有解析、题目整理或画像任务正在排队/处理，请等待任务结束后再备份"
     }
 
+    # Compatible with backups taken before the follow-up table migration.
+    $followupTable = @(& docker compose -f $ComposeFile exec -T postgres sh -lc `
+        'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT to_regclass(''public.project_followup_runs'') IS NOT NULL;"')
+    if ($LASTEXITCODE -ne 0 -or $followupTable.Count -ne 1 -or $followupTable[0].Trim() -notin @("t", "f")) {
+        throw "无法确认项目追问表状态，已停止备份"
+    }
+    if ($followupTable[0].Trim() -eq "t") {
+        $followupCount = @(& docker compose -f $ComposeFile exec -T postgres sh -lc `
+            'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT count(*) FROM project_followup_runs WHERE status IN (''QUEUED'',''PROCESSING'');"')
+        if ($LASTEXITCODE -ne 0 -or $followupCount.Count -ne 1 -or $followupCount[0].Trim() -notmatch '^\d+$') {
+            throw "无法确认项目追问是否空闲，已停止备份"
+        }
+        if ([int]$followupCount[0].Trim() -gt 0) {
+            throw "仍有项目追问任务正在排队/处理，请结束任务后再备份"
+        }
+    }
+
     $runningServices = @(& docker compose -f $ComposeFile ps --services --filter status=running)
     if ($LASTEXITCODE -ne 0) { throw "无法读取 Compose 运行状态" }
     $servicesToResume = @("api", "worker", "web" | Where-Object { $runningServices -contains $_ })

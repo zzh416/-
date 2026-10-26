@@ -51,3 +51,8 @@ def test_followups_apply_original_skill_and_preference_exclusions():
     ]:
         items, rejected = validate_followups(PROJECT, [SEED], [candidate(question=question)], skills=skills, rules=rules)
         assert not items and rejected["excluded"] == 1
+
+
+def test_followups_do_not_relabel_other_existing_questions_as_ai_questions():
+    items, rejected = validate_followups(PROJECT, [SEED], [candidate()], skills=[], rules=[], existing_prompts=["1. RAG 重排如何评估效果？"])
+    assert not items and rejected["duplicate"] == 1

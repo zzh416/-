@@ -9,10 +9,10 @@ from app.modules.question_identity import question_identity
 from app.modules.recommendation_service import build_recommendation
 
 
-def validate_followups(project, seeds, candidates, *, skills, rules):
+def validate_followups(project, seeds, candidates, *, skills, rules, existing_prompts=()):
     seed_map = {item["id"]: item for item in seeds}
     seed_order = {item["id"]: index for index, item in enumerate(seeds)}
-    seen = {question_identity(item["prompt"]) for item in seeds}
+    seen = {question_identity(item["prompt"]) for item in seeds} | {question_identity(prompt) for prompt in existing_prompts}
     levels, parents, accepted, rejected = {}, {}, [], Counter()
     prepared = prepare_projects([project])
     for item in sorted(candidates, key=lambda item: (seed_order.get(str(item.seed_item_id), 999), item.level)):
