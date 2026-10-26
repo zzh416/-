@@ -13,6 +13,7 @@
 - 本机固定用户隔离、创建请求幂等、并发编辑版本冲突检查和刷新后持久化。
 - 上传 `.png`、`.jpg`、`.jpeg` 图片，上限 10 MiB；上传 `.pdf`、`.docx`、`.doc` 文档，上限 25 MiB，PDF 最多 100 页。
 - 通过同一个链接入口导入公开网页：先提取静态正文，遇到 JavaScript 空壳时自动使用隔离的 Chromium 渲染，再保存来源 URL、抓取时间与 HTML 快照。
+- 一次粘贴最多 50 个网页链接，支持批内去重、同库复用、逐条状态与重试、刷新后历史；保留 hash 章节地址。入口和边界见 [批量链接导入](./docs/批量链接导入.md)。
 - Celery Worker 后台解析，界面自动刷新等待、处理、部分完成、等待配置和失败状态，并支持最多三次手动重试。
 - 图片、扫描 PDF 和 DOCX 内嵌图片可通过智谱 `glm-ocr` 或 DeepSeek `deepseek-flash` 识别，由 `OCR_PROVIDER` 独立选择；未配置 Key 时保留资料并明确提示。
 - PDF 文字层、DOCX 段落/标题/表格及旧 `.doc` 转换可在本地完成；旧 `.doc` 由容器内无界面的 LibreOffice 转换。
@@ -96,10 +97,13 @@ docker compose -f infra/docker-compose.yml up -d --no-deps --force-recreate web
 ## 验证
 
 ```bash
-docker compose -f infra/docker-compose.yml exec -T api pytest -q
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm --no-deps api python scripts/run_isolated_tests.py -q
 docker compose -f infra/docker-compose.yml exec -T renderer npm test
-docker compose -f infra/docker-compose.yml exec -T web npm run lint
-docker compose -f infra/docker-compose.yml exec -T web npm run build
+cd apps/web
+npm ci
+npm run lint
+npm run build
+cd ../..
 docker compose -f infra/docker-compose.yml config --quiet
 docker compose -f infra/docker-compose.yml exec -T api python scripts/p2_live_smoke.py
 docker compose -f infra/docker-compose.yml exec -T api python scripts/p4_performance.py
