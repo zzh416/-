@@ -57,11 +57,30 @@
 - 图片 OCR：智谱 `glm-ocr` 或 DeepSeek `deepseek-flash`
 - 后台任务：Celery、Redis
 
+## 项目结构
+
+```text
+interview-knowledge-hub/
+├── frontend/              # React + TypeScript 用户界面
+├── backend/               # FastAPI、Celery、数据库模型与 Alembic 迁移
+├── services/
+│   └── renderer/          # 隔离的 Playwright 动态网页渲染服务
+├── infra/                 # Docker Compose、环境变量模板、备份与恢复脚本
+├── data/                  # 本机上传原件（Git 忽略）
+├── backups/               # 本机备份（Git 忽略）
+├── docs/                  # 功能、验收与架构说明
+└── tests/                 # 跨服务测试夹具
+```
+
+PostgreSQL 和 Redis 由 `infra/docker-compose.yml` 启动并使用 Docker 数据卷，不在仓库中保存数据库文件。数据库表结构属于后端，因此 Alembic 迁移保留在 `backend/migrations/`。完整说明见[项目目录与架构](./docs/项目目录与架构.md)。
+
 ## 启动
 
 前置要求：Docker 与 Docker Compose。
 
 ```bash
+git clone https://github.com/zzh416/interview-knowledge-hub.git
+cd interview-knowledge-hub
 cp infra/.env.example infra/.env
 docker compose -f infra/docker-compose.yml up -d --build
 ```
@@ -100,18 +119,18 @@ docker compose -f infra/docker-compose.yml build web
 docker compose -f infra/docker-compose.yml up -d --no-deps --force-recreate web
 ```
 
-后端直接依赖记录在 `apps/api/requirements.txt`，完整解析版本固定在 `apps/api/requirements.lock`，镜像按锁文件安装。升级版本后重建 API 与 Worker，并运行完整测试。
+后端直接依赖记录在 `backend/requirements.txt`，完整解析版本固定在 `backend/requirements.lock`，镜像按锁文件安装。升级版本后重建 API 与 Worker，并运行完整测试。
 
 ## 验证
 
 ```bash
 docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run --rm --no-deps api python scripts/run_isolated_tests.py -q
 docker compose -f infra/docker-compose.yml exec -T renderer npm test
-cd apps/web
+cd frontend
 npm ci
 npm run lint
 npm run build
-cd ../..
+cd ..
 docker compose -f infra/docker-compose.yml config --quiet
 docker compose -f infra/docker-compose.yml exec -T api python scripts/p2_live_smoke.py
 docker compose -f infra/docker-compose.yml exec -T api python scripts/p4_performance.py

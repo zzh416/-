@@ -7,7 +7,7 @@
 运行命令：
 
 ```bash
-cd apps/api
+cd backend
 python -m tools.evaluate_extraction_quality --samples quality_samples --output quality-report.md
 ```
 
