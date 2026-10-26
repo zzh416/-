@@ -23,6 +23,7 @@ export function InterviewReport({ session }: { session: InterviewSession }) {
       {session.blindTopics.length > 0 && <Typography.Paragraph>待复习方向：{session.blindTopics.join('、')}</Typography.Paragraph>}
     </Card>
     {session.turns.map((turn, index) => <Card key={turn.id} size="small" title={`记录 ${index + 1} · ${turn.depth ? '追问' : '基础题'} · ${answerLabels[turn.answerStatus]}`}>
+      <Space wrap><Tag>{turn.kind === 'BANK' ? '题库已有题' : turn.kind === 'AI_FOLLOWUP' ? 'AI 追问题' : 'AI 自主题'}</Tag>{turn.skillBasis && <Tag>技能依据：{turn.skillBasis}</Tag>}{turn.projectName && <Tag>项目依据：{turn.projectName}</Tag>}</Space>
       <SafeMarkdown>{turn.prompt ?? ''}</SafeMarkdown>
       <Typography.Paragraph style={{ whiteSpace: 'pre-wrap' }}>{turn.answer || turn.draft || '未填写回答'}</Typography.Paragraph>
       <Typography.Paragraph type="secondary">作答用时 {turn.elapsedSeconds} 秒{turn.timedOut ? ' · 已到时' : ''}</Typography.Paragraph>

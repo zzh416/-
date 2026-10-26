@@ -38,7 +38,9 @@ export function InterviewRound({ session, onUpdate, notify }: Props) {
   return <Space orientation="vertical" size="middle" className="profile-stack">
     <Card>
       <Space wrap>
-        <Tag>{turn.kind === 'BANK' ? '题库已有题' : 'AI 建议题'}</Tag>
+        <Tag>{turn.kind === 'BANK' ? '题库已有题' : turn.kind === 'AI_FOLLOWUP' ? 'AI 追问题' : 'AI 自主题'}</Tag>
+        {turn.skillBasis && <Tag>技能依据：{turn.skillBasis}</Tag>}
+        {turn.projectName && <Tag>项目依据：{turn.projectName}</Tag>}
         <Tag>{turn.depth ? `追问 ${turn.depth}/2` : `基础题 ${session.plan.findIndex((item) => item.id === turn.rootId) + 1}/${session.plan.length}`}</Tag>
         {['ACTIVE', 'PAUSED'].includes(session.status) && <Typography.Text strong role="timer" aria-label="本题剩余时间">剩余 {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, '0')}</Typography.Text>}
       </Space>

@@ -1,5 +1,7 @@
 import { apiRequest, idempotentCreate, jsonRequest, type SourceStatistics } from './client'
 
+export type QuestionSource = 'BANK' | 'AI' | 'HYBRID'
+
 export interface InterviewQuestion {
   id: string
   prompt: string | null
@@ -8,6 +10,7 @@ export interface InterviewQuestion {
   reason: string
   projectName: string | null
   projectQuote: string | null
+  skillBasis: string | null
   sourceStatistics: SourceStatistics | null
 }
 
@@ -39,6 +42,7 @@ export interface InterviewSession {
   serverNow: string
   isCurrent: boolean
   mode: 'MOCK' | 'PREVIEW'
+  questionSource: QuestionSource
   questionCount: number
   questionSeconds: number
   plan: InterviewQuestion[]
@@ -55,7 +59,8 @@ export interface InterviewSession {
 }
 
 export interface InterviewCreate {
-  recommendationRunId: string
+  recommendationRunId?: string
+  questionSource: QuestionSource
   projectId?: string
   questionCount: number
   questionSeconds: number

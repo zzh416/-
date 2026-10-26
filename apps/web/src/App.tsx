@@ -762,10 +762,14 @@ function App() {
             </>
           ) : (
             <div className="content-empty">
-              <Typography.Title level={2}>从一个资料库开始</Typography.Title>
+              <Typography.Title level={2}>选择你的备考方式</Typography.Title>
               <Typography.Paragraph type="secondary">
-                资料库用于归类面经和内部知识，然后可以导入文字并整理问答。
+                可以导入面经建立题库，也可以先上传简历并确认技能和项目，直接开始 AI 模拟面试。
               </Typography.Paragraph>
+              <Space wrap>
+                <Button onClick={() => setProfileOpen(true)}>完善我的画像</Button>
+                <Button type="primary" onClick={() => setInterviewOpen(true)}>开始模拟面试</Button>
+              </Space>
             </div>
           )}
         </main>
@@ -1159,7 +1163,10 @@ function App() {
         setInterviewEntry({ key: crypto.randomUUID(), id })
         setInterviewOpen(true)
       }} />
-      <InterviewDrawer key={interviewEntry.key} initialSessionId={interviewEntry.id} open={isInterviewOpen} onClose={() => setInterviewOpen(false)} notify={(kind, text) => {
+      <InterviewDrawer key={interviewEntry.key} initialSessionId={interviewEntry.id} open={isInterviewOpen} onClose={() => setInterviewOpen(false)} onOpenProfile={() => {
+        setInterviewOpen(false)
+        setProfileOpen(true)
+      }} notify={(kind, text) => {
         if (kind === 'success') messageApi.success(text)
         else messageApi.error(text)
       }} />
