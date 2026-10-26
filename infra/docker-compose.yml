@@ -43,7 +43,7 @@ services:
 
   renderer:
     build:
-      context: ../apps/renderer
+      context: ../services/renderer
       args:
         BASE_IMAGE: ${RENDERER_BASE_IMAGE:-mcr.microsoft.com/playwright:v1.64.0-noble}
     init: true
@@ -87,7 +87,7 @@ services:
 
   api:
     build:
-      context: ../apps/api
+      context: ../backend
       args:
         BASE_IMAGE: ${API_BASE_IMAGE:-python:3.12-slim}
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 9000 --no-access-log"
@@ -159,7 +159,7 @@ services:
 
   worker:
     build:
-      context: ../apps/api
+      context: ../backend
       args:
         BASE_IMAGE: ${API_BASE_IMAGE:-python:3.12-slim}
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=1
@@ -235,7 +235,7 @@ services:
 
   web:
     build:
-      context: ../apps/web
+      context: ../frontend
       target: runtime
       args:
         BASE_IMAGE: ${WEB_BASE_IMAGE:-node:24-alpine}
