@@ -7,6 +7,7 @@ from pydantic import Field, computed_field, field_validator
 
 from app.schemas.common import APIModel
 from app.schemas.sources import SourceStatistics
+from app.schemas.ai_answers import AIAnswerView, EffectiveAnswerView
 
 
 class QuestionCreate(APIModel):
@@ -63,6 +64,8 @@ class QuestionView(APIModel):
     prompt: str
     version: int
     answer: AnswerView | None
+    ai_answer: AIAnswerView | None = None
+    effective_answer: EffectiveAnswerView | None = None
     note: NoteView | None
     created_at: datetime
     updated_at: datetime
@@ -70,8 +73,8 @@ class QuestionView(APIModel):
 
     @computed_field
     @property
-    def answer_state(self) -> Literal["MISSING", "SOURCE_ANSWER"]:
-        return "SOURCE_ANSWER" if self.answer is not None else "MISSING"
+    def answer_state(self) -> Literal["MISSING", "SOURCE_ANSWER", "AI_ANSWER"]:
+        return "SOURCE_ANSWER" if self.answer is not None else "AI_ANSWER" if self.effective_answer is not None else "MISSING"
 
 
 class QuestionPage(APIModel):

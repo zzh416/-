@@ -132,6 +132,7 @@ def _profile_context(
 
 
 def _visible_questions(db: Session, owner_id: UUID) -> list[Question]:
+    from app.modules.ai_answer_service import attach_answers
     has_occurrence = exists(
         select(QuestionOccurrence.id).where(QuestionOccurrence.question_id == Question.id)
     )
@@ -141,17 +142,19 @@ def _visible_questions(db: Session, owner_id: UUID) -> list[Question]:
             QuestionOccurrence.review_status != "REJECTED",
         )
     )
-    return list(
+    questions = list(
         db.scalars(
             select(Question)
             .where(
                 Question.owner_id == owner_id,
                 or_(~has_occurrence, has_visible_occurrence),
             )
-            .options(selectinload(Question.answer))
+            .options(selectinload(Question.answer), selectinload(Question.note))
             .order_by(Question.id)
         ).all()
     )
+    attach_answers(db, questions)
+    return questions
 
 
 def _content_fingerprint(questions: list[Question], source_statistics: dict) -> str:
@@ -160,6 +163,8 @@ def _content_fingerprint(questions: list[Question], source_statistics: dict) -> 
             "id": str(question.id),
             "question_version": question.version,
             "answer_version": question.answer.version if question.answer is not None else None,
+            **({"ai_answer_id": str(question.effective_answer.ai_answer_id), "ai_answer_version": question.effective_answer.version}
+               if getattr(question, "effective_answer", None) and question.effective_answer.ai_answer_id else {}),
             "sources": source_statistics[question.id].model_dump(mode="json"),
         }
         for question in questions
@@ -180,14 +185,14 @@ def _deduplicate_questions(questions: list[Question]) -> list[Question]:
             selected[identity] = question
             continue
         question_rank = (
-            bool(question.answer and question.answer.content.strip()),
+            2 if question.answer and question.answer.content.strip() else int(bool(getattr(question, "effective_answer", None))),
             question.answer.version if question.answer is not None else 0,
             question.version,
             question.updated_at,
             str(question.id),
         )
         current_rank = (
-            bool(current.answer and current.answer.content.strip()),
+            2 if current.answer and current.answer.content.strip() else int(bool(getattr(current, "effective_answer", None))),
             current.answer.version if current.answer is not None else 0,
             current.version,
             current.updated_at,
@@ -269,7 +274,7 @@ def create_recommendation_run(
 
     evaluated = []
     for question in _deduplicate_questions(questions):
-        answer_content = question.answer.content if question.answer is not None else None
+        answer_content = question.effective_answer.content if question.effective_answer is not None else None
         evaluation = build_recommendation(
             prompt=question.prompt,
             answer=answer_content,
@@ -301,7 +306,7 @@ def create_recommendation_run(
     db.flush()
     projects = prepare_projects(profile_snapshot["projects"])
     for position, (question, evaluation) in enumerate(evaluated, start=1):
-        answer = question.answer
+        answer = question.effective_answer
         db.add(
             RecommendationItem(
                 run_id=run.id,
@@ -309,18 +314,20 @@ def create_recommendation_run(
                 collection_id=question.collection_id,
                 position=position,
                 question_version=question.version,
-                answer_version=answer.version if answer is not None else None,
+                answer_version=question.answer.version if question.answer is not None else None,
+                ai_answer_id=answer.ai_answer_id if answer else None,
+                ai_answer_version=answer.version if answer and answer.ai_answer_id else None,
                 prompt=question.prompt,
                 answer_content=answer.content if answer is not None else None,
                 answer_source_type=answer.source_type if answer is not None else None,
                 decision=evaluation.decision,
                 score=evaluation.score,
-                answer_state=evaluation.answer_state,
+                answer_state="AI_ANSWER" if answer and answer.source_type == "AI_GENERATED" else evaluation.answer_state,
                 usable_answer_state=evaluation.usable_answer_state,
                 question_technologies=[item.__dict__ for item in evaluation.question_technologies],
                 answer_technologies=[item.__dict__ for item in evaluation.answer_technologies],
                 reason_codes=list(evaluation.reason_codes),
-                reasons=list(evaluation.reasons),
+                reasons=[*evaluation.reasons, "采用已人工确认的AI补充参考，仍需核对"] if answer and answer.source_type == "AI_GENERATED" else list(evaluation.reasons),
                 source_statistics=source_statistics[question.id].model_dump(mode="json"),
                 project_matches=match_projects(question.prompt, projects) if evaluation.decision == "INCLUDED" else [],
             )

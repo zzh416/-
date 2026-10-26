@@ -12,6 +12,7 @@ from app.idempotency import remember_request, replay_resource_id, request_hash
 from app.models import InterviewSession, LearningRecord, Question, QuestionOccurrence, RecommendationItem, User
 from app.modules.question_extraction_service import initial_review_status
 from app.modules.recommendation_service import build_recommendation
+from app.modules.ai_answer_service import attach_answers
 from app.routes.recommendations import _profile_context, _rule_context
 from app.schemas.learning import (LearningCandidate, LearningCandidates, LearningItem, LearningLookup,
     LearningLookupPage, LearningPage, LearningUpdate, LearningView)
@@ -28,10 +29,11 @@ def _visible():
 
 
 def _question(db, owner, question_id, lock=False):
-    statement = select(Question).where(Question.id == question_id, Question.owner_id == owner, _visible()).options(selectinload(Question.answer))
+    statement = select(Question).where(Question.id == question_id, Question.owner_id == owner, _visible()).options(selectinload(Question.answer), selectinload(Question.note))
     question = db.scalar(statement.with_for_update() if lock else statement)
     if question is None:
         raise HTTPException(status_code=404, detail="题目不存在或已隐藏")
+    attach_answers(db, [question])
     return question
 
 
@@ -40,15 +42,18 @@ def _lock_owner(db, owner):
 
 
 def _versions(question):
-    return question.version, question.answer.version if question.answer else None
+    answer = question.effective_answer
+    return (question.version, question.answer.version if question.answer else None,
+            answer.ai_answer_id if answer else None, answer.version if answer and answer.ai_answer_id else None)
 
 
 def _view(record, question=None):
-    qv, av = _versions(question) if question else (1, None)
+    qv, av, ai_id, ai_version = _versions(question) if question else (1, None, None, None)
     return LearningView(id=record.id if record else None, question_id=question.id if question else None,
         source_kind=record.source_kind if record else "BANK", status=record.status if record else "UNMARKED",
         version=record.version if record else 0, question_version=qv, answer_version=av,
-        content_changed=bool(record and question and (record.question_version, record.answer_version) != (qv, av)),
+        ai_answer_id=ai_id, ai_answer_version=ai_version,
+        content_changed=bool(record and question and (record.question_version, record.answer_version, record.ai_answer_id, record.ai_answer_version) != (qv, av, ai_id, ai_version)),
         updated_at=record.updated_at if record else None)
 
 
@@ -62,8 +67,8 @@ def _record(db, owner, record_id):
 def _write(db, owner, payload, *, question=None, record=None):
     if payload.expected_version != (record.version if record else 0):
         raise HTTPException(status_code=409, detail="复习状态已变化，请刷新后再标记")
-    versions = _versions(question) if question else (1, None)
-    if (payload.question_version, payload.answer_version) != versions:
+    versions = _versions(question) if question else (1, None, None, None)
+    if (payload.question_version, payload.answer_version, payload.ai_answer_id, payload.ai_answer_version) != versions:
         raise HTTPException(status_code=409, detail="题目或答案已更新，请核对当前内容后再标记")
     if record is None:
         record = LearningRecord(owner_id=owner, identity_key=f"question:{question.id}", question=question,
@@ -72,7 +77,7 @@ def _write(db, owner, payload, *, question=None, record=None):
     else:
         record.version += 1
     record.status = payload.status
-    record.question_version, record.answer_version = versions
+    record.question_version, record.answer_version, record.ai_answer_id, record.ai_answer_version = versions
     if question:
         record.prompt = question.prompt
     return record
@@ -82,9 +87,10 @@ def _write(db, owner, payload, *, question=None, record=None):
 def lookup(payload: LearningLookup, db: Session = Depends(get_db), owner: UUID = Depends(get_current_user_id)):
     ids = list(dict.fromkeys(payload.question_ids))
     questions = db.scalars(select(Question).where(Question.id.in_(ids), Question.owner_id == owner, _visible())
-                          .options(selectinload(Question.answer))).all()
+                          .options(selectinload(Question.answer), selectinload(Question.note))).all()
     if len(questions) != len(ids):
         raise HTTPException(status_code=404, detail="部分题目不存在或已隐藏，请刷新列表")
+    attach_answers(db, questions)
     states = {r.question_id: r for r in db.scalars(select(LearningRecord).where(
         LearningRecord.owner_id == owner, LearningRecord.question_id.in_(ids))).all()}
     by_id = {q.id: q for q in questions}
@@ -118,7 +124,9 @@ def items(db: Session = Depends(get_db), owner: UUID = Depends(get_current_user_
     _, _, _, skills = _profile_context(db, owner)
     _, rules, _ = _rule_context(db, owner)
     records = db.scalars(select(LearningRecord).where(LearningRecord.owner_id == owner, LearningRecord.status != "UNMARKED")
-                        .options(selectinload(LearningRecord.question).selectinload(Question.answer))).all()
+                        .options(selectinload(LearningRecord.question).selectinload(Question.answer),
+                                 selectinload(LearningRecord.question).selectinload(Question.note))).all()
+    attach_answers(db, list({r.question_id: r.question for r in records if r.question is not None}.values()))
     question_ids = [r.question_id for r in records if r.question_id]
     visible_ids = set(db.scalars(select(Question.id).where(Question.id.in_(question_ids), Question.owner_id == owner, _visible())).all()) if question_ids else set()
     eligible, excluded = [], 0
@@ -128,7 +136,8 @@ def items(db: Session = Depends(get_db), owner: UUID = Depends(get_current_user_
             excluded += 1
             continue
         prompt = question.prompt if question else record.prompt
-        answer = question.answer.content if question and question.answer else None
+        effective = question.effective_answer if question else None
+        answer = effective.content if effective else None
         evaluation = build_recommendation(prompt=prompt, answer=answer, skills=skills, rules=rules)
         if evaluation.decision != "INCLUDED":
             excluded += 1
@@ -136,6 +145,7 @@ def items(db: Session = Depends(get_db), owner: UUID = Depends(get_current_user_
         view = _view(record, question)
         eligible.append(LearningItem(**view.model_dump(), prompt=prompt,
             answer_content=answer if evaluation.usable_answer_state == "ANSWERED" else None,
+            answer_source_type=effective.source_type if effective and evaluation.usable_answer_state == "ANSWERED" else None,
             source_session_id=record.source_session_id, source_turn_id=record.source_turn_id))
     counts = {s: sum(i.status == s for i in eligible) for s in ("UNKNOWN", "WEAK", "MASTERED")}
     changed = sum(i.content_changed for i in eligible)
@@ -214,9 +224,10 @@ def confirm(session_id: UUID, turn_id: UUID, db: Session = Depends(get_db), owne
     question = _turn_source(db, owner, session, turn)
     if question:
         record = db.scalar(select(LearningRecord).where(LearningRecord.owner_id == owner, LearningRecord.question_id == question.id))
-        qv, av = _versions(question)
+        qv, av, ai_id, ai_version = _versions(question)
         record = _write(db, owner, LearningUpdate(status="UNKNOWN", expected_version=record.version if record else 0,
-                                                question_version=qv, answer_version=av), question=question, record=record)
+                                                question_version=qv, answer_version=av, ai_answer_id=ai_id,
+                                                ai_answer_version=ai_version), question=question, record=record)
     else:
         record = LearningRecord(owner_id=owner, identity_key=f"interview:{session_id}:{turn_id}", source_kind="INTERVIEW",
             source_session_id=session_id, source_turn_id=str(turn_id), prompt=turn["prompt"], status="UNKNOWN", version=1, question_version=1)

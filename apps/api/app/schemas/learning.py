@@ -17,6 +17,8 @@ class LearningUpdate(APIModel):
     expected_version: int = Field(ge=0)
     question_version: int = Field(ge=1)
     answer_version: int | None
+    ai_answer_id: UUID | None = None
+    ai_answer_version: int | None = None
 
 
 class LearningView(APIModel):
@@ -27,6 +29,8 @@ class LearningView(APIModel):
     version: int
     question_version: int
     answer_version: int | None
+    ai_answer_id: UUID | None = None
+    ai_answer_version: int | None = None
     content_changed: bool
     updated_at: datetime | None
 
@@ -38,6 +42,7 @@ class LearningLookupPage(APIModel):
 class LearningItem(LearningView):
     prompt: str
     answer_content: str | None
+    answer_source_type: str | None = None
     source_session_id: UUID | None
     source_turn_id: str | None
 

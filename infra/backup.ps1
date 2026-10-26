@@ -70,6 +70,22 @@ try {
         }
     }
 
+    $aiAnswerTable = @(& docker compose -f $ComposeFile exec -T postgres sh -lc `
+        'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT to_regclass(''public.ai_answer_runs'') IS NOT NULL;"')
+    if ($LASTEXITCODE -ne 0 -or $aiAnswerTable.Count -ne 1 -or $aiAnswerTable[0].Trim() -notin @("t", "f")) {
+        throw "无法确认 AI 补充答案表状态，已停止备份"
+    }
+    if ($aiAnswerTable[0].Trim() -eq "t") {
+        $aiAnswerCount = @(& docker compose -f $ComposeFile exec -T postgres sh -lc `
+            'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT count(*) FROM ai_answer_runs WHERE status IN (''QUEUED'',''PROCESSING'');"')
+        if ($LASTEXITCODE -ne 0 -or $aiAnswerCount.Count -ne 1 -or $aiAnswerCount[0].Trim() -notmatch '^\d+$') {
+            throw "无法确认 AI 补充答案任务是否空闲，已停止备份"
+        }
+        if ([int]$aiAnswerCount[0].Trim() -gt 0) {
+            throw "仍有 AI 补充答案任务正在排队/处理，请等待完成后再备份"
+        }
+    }
+
     $interviewTable = @(& docker compose -f $ComposeFile exec -T postgres sh -lc `
         'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atqc "SELECT to_regclass(''public.interview_sessions'') IS NOT NULL;"')
     if ($LASTEXITCODE -ne 0 -or $interviewTable.Count -ne 1 -or $interviewTable[0].Trim() -notin @("t", "f")) {

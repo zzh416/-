@@ -84,7 +84,8 @@ def process_interview(session_id: UUID, *, planner=generate_interview_plan, revi
             root = next(item for item in state["plan"] if item["id"] == turn["root_id"])
             project = next((item for item in projects(state) if item["id"] == root.get("project_id")), None)
             payload.update(question=turn["prompt"], answer=turn["answer"], root_question=root["prompt"],
-                           reference_answer=turn.get("reference_answer"), max_followups_reached=turn["depth"] >= 2,
+                           reference_answer=turn.get("reference_answer"),
+                           reference_answer_source_type=turn.get("reference_answer_source_type"), max_followups_reached=turn["depth"] >= 2,
                            conversation=[{"question": item["prompt"], "answer": item["answer"]} for item in state["turns"] if item["root_id"] == turn["root_id"] and item["id"] != turn["id"]])
             payload["projects"] = [{"id": project["id"], "name": project["name"], "description": project["description"]}] if project else []
             result = reviewer(payload, api_key=config.api_key, base_url=config.base_url, model=config.model, provider=config.provider)

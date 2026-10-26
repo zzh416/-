@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     ingestion_retry_limit: int = 3
     renderer_url: str = "http://renderer:9100"
     renderer_timeout_seconds: float = 30.0
+    ai_answer_daily_limit: int = Field(default=30, ge=1, le=500)
+    ai_answer_concurrency_limit: int = Field(default=1, ge=1, le=4)
+    ai_answer_retry_limit: int = Field(default=3, ge=0, le=3)
 
     # 文字模型与 OCR 分别显式选择，不自动切换服务商。
     text_model_provider: Literal["glm", "deepseek"] = "glm"

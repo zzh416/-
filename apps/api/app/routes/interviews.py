@@ -97,7 +97,8 @@ def create_interview(payload: InterviewCreate, db: Session = Depends(get_db), ow
             continue
         project_id = str(payload.project_id) if payload.project_id else ((item.project_matches or [{}])[0].get("project_id"))
         pool.append({"id": str(item.id), "prompt": item.prompt, "source_statistics": item.source_statistics, "project_id": project_id,
-                     "reference_answer": item.answer_content[:3000] if item.usable_answer_state == "ANSWERED" and item.answer_content else None})
+                     "reference_answer": item.answer_content[:3000] if item.usable_answer_state == "ANSWERED" and item.answer_content else None,
+                     "reference_answer_source_type": item.answer_source_type if item.usable_answer_state == "ANSWERED" else None})
         length += len(item.prompt)
     if payload.question_source == "BANK" and not pool:
         raise HTTPException(status_code=409, detail="当前范围没有可用题库题，请调整范围或选择AI自主出题")

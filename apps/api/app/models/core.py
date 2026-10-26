@@ -471,6 +471,8 @@ class RecommendationItem(Base):
     prompt: Mapped[str] = mapped_column(Text)
     answer_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     answer_source_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    ai_answer_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    ai_answer_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     decision: Mapped[str] = mapped_column(String(16))
     score: Mapped[float] = mapped_column(Float)
     answer_state: Mapped[str] = mapped_column(String(24))

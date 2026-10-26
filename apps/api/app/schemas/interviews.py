@@ -51,6 +51,7 @@ class PlanItemView(APIModel):
     project_quote: str | None = None
     skill_basis: str | None = None
     source_statistics: SourceStatistics | None = None
+    reference_answer_source_type: str | None = None
 
 
 class FeedbackView(APIModel):

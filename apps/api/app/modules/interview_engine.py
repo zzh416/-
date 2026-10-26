@@ -102,7 +102,7 @@ def command(state, action, now, seconds=60):
         advance(state, now)
     elif action == "FOLLOWUP" and status == "AWAITING_NEXT" and turn.get("followup") and turn["depth"] < 2:
         root = next(item for item in state["plan"] if item["id"] == turn["root_id"])
-        item = {**root, **turn["followup"], "kind": "AI_FOLLOWUP", "reference_answer": None}
+        item = {**root, **turn["followup"], "kind": "AI_FOLLOWUP", "reference_answer": None, "reference_answer_source_type": None}
         _new_turn(state, item, now, depth=turn["depth"] + 1, root_id=turn["root_id"])
     else:
         raise ValueError("当前状态不能执行这个操作")

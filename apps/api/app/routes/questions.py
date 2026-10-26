@@ -12,6 +12,7 @@ from app.identity import get_current_user_id
 from app.idempotency import remember_request, replay_resource_id, request_hash
 from app.models import (
     Answer,
+    AIAnswerRun,
     AnswerRevision,
     Asset,
     AssetVersion,
@@ -23,6 +24,7 @@ from app.models import (
     TextChunk,
 )
 from app.modules.question_history import record_question_change
+from app.modules.ai_answer_service import attach_answers
 from app.modules.source_statistics import question_source_statistics
 from app.schemas.sources import SourceStatistics
 from app.schemas.questions import (
@@ -55,6 +57,7 @@ def _get_question(db: Session, question_id: UUID, owner_id: UUID, lock: bool = F
     question = db.scalar(statement)
     if question is None:
         raise HTTPException(status_code=404, detail="题目不存在")
+    attach_answers(db, [question])
     return question
 
 
@@ -171,25 +174,34 @@ def list_questions(
     ]
     if collection_id is not None:
         filters.append(Question.collection_id == collection_id)
+    ai_questions = list(db.scalars(select(Question).where(*filters, Question.answer == None,
+        exists(select(AIAnswerRun.id).where(AIAnswerRun.question_id == Question.id,
+            AIAnswerRun.status == "SUCCEEDED", AIAnswerRun.review_status == "CONFIRMED")))
+        .options(selectinload(Question.answer), selectinload(Question.note))).all())
+    attach_answers(db, ai_questions)
+    ai_ids = [item.id for item in ai_questions if item.effective_answer is not None]
+    has_answer = or_(Answer.id.is_not(None), Question.id.in_(ai_ids))
     if q and q.strip():
         pattern = f"%{q.strip()}%"
-        filters.append(or_(Question.prompt.ilike(pattern), Answer.content.ilike(pattern)))
+        ai_search_ids = [item.id for item in ai_questions if item.effective_answer
+                         and q.strip().casefold() in item.effective_answer.content.casefold()]
+        filters.append(or_(Question.prompt.ilike(pattern), Answer.content.ilike(pattern), Question.id.in_(ai_search_ids)))
 
     answered_count = db.scalar(
         select(func.count(Question.id))
         .outerjoin(Answer)
-        .where(*filters, Answer.id.is_not(None))
+        .where(*filters, has_answer)
     ) or 0
     missing_count = db.scalar(
         select(func.count(Question.id))
         .outerjoin(Answer)
-        .where(*filters, Answer.id.is_(None))
+        .where(*filters, ~has_answer)
     ) or 0
     page_filters = list(filters)
     if answer_state == "ANSWERED":
-        page_filters.append(Answer.id.is_not(None))
+        page_filters.append(has_answer)
     elif answer_state == "MISSING":
-        page_filters.append(Answer.id.is_(None))
+        page_filters.append(~has_answer)
 
     total = db.scalar(
         select(func.count(Question.id)).outerjoin(Answer).where(*page_filters)
@@ -204,6 +216,7 @@ def list_questions(
         .limit(page_size)
     ).all()
     statistics = question_source_statistics(db, owner_id, list(items))
+    attach_answers(db, list(items))
     return QuestionPage(
         items=[QuestionView.model_validate(question).model_copy(update={"source_statistics": statistics[question.id]}) for question in items],
         page=page,

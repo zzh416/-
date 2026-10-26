@@ -75,9 +75,11 @@ class RecommendationItemView(APIModel):
     prompt: str
     answer_content: str | None
     answer_source_type: str | None
+    ai_answer_id: UUID | None = None
+    ai_answer_version: int | None = None
     decision: Literal["INCLUDED", "EXCLUDED"]
     score: float
-    answer_state: Literal["MISSING", "SOURCE_ANSWER"]
+    answer_state: Literal["MISSING", "SOURCE_ANSWER", "AI_ANSWER"]
     usable_answer_state: Literal["MISSING", "ANSWERED"]
     question_technologies: list[TechnologyMatchView]
     answer_technologies: list[TechnologyMatchView]

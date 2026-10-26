@@ -99,8 +99,9 @@ def render_prep_package(
     for number, item in enumerate(included, 1):
         sections.extend(["---", f"## 第 {number} 题", "### 问题", item.prompt.strip()])
         if item.usable_answer_state == "ANSWERED" and item.answer_content and item.answer_content.strip():
-            sections.extend(["### 资料答案", item.answer_content.strip()])
-        elif item.answer_state == "SOURCE_ANSWER":
+            title = "### AI补充参考答案（已人工确认，仍需核对）" if item.answer_source_type == "AI_GENERATED" else "### 资料答案"
+            sections.extend([title, item.answer_content.strip()])
+        elif item.answer_state in {"SOURCE_ANSWER", "AI_ANSWER"}:
             sections.append("> 来源答案当前不适用，未导出答案正文。")
         sections.append(_sources(item))
         if item.project_matches:

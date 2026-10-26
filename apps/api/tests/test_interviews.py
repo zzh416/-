@@ -180,4 +180,8 @@ def test_ai_only_fills_bank_shortfall_and_must_obey_project_and_exclusion_rules(
     saved = client.get(f"/api/v1/interview-sessions/{session['id']}").json()
     assert len(saved["plan"]) == 4 and sum(item["kind"] == "AI" for item in saved["plan"]) == 1
     assert all("Java" not in item["prompt"] for item in saved["plan"])
-    assert "reference_answer" not in str(saved) and "referenceAnswer" not in str(saved)
+    def contains_reference_content(value):
+        if isinstance(value, dict):
+            return any(key in {"reference_answer", "referenceAnswer"} or contains_reference_content(item) for key, item in value.items())
+        return isinstance(value, list) and any(contains_reference_content(item) for item in value)
+    assert not contains_reference_content(saved)
