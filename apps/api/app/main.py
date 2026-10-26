@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import settings
-from app.routes import assets, collections, extractions, health, interviews, profile_projects, profiles, project_followups, questions, recommendations, url_imports
+from app.routes import assets, collections, extractions, health, interviews, learning, profile_projects, profiles, project_followups, questions, recommendations, url_imports
 
 app = FastAPI(
     title=settings.app_name,
@@ -110,6 +110,7 @@ app.include_router(health.router, prefix="/api/v1")
 app.include_router(collections.router, prefix="/api/v1")
 app.include_router(assets.router, prefix="/api/v1")
 app.include_router(url_imports.router, prefix="/api/v1")
+app.include_router(learning.router, prefix="/api/v1")
 app.include_router(questions.router, prefix="/api/v1")
 app.include_router(extractions.router, prefix="/api/v1")
 app.include_router(profiles.router, prefix="/api/v1")
