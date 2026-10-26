@@ -56,6 +56,8 @@ import { ProfileDrawer } from './components/ProfileDrawer'
 import { RecommendationDrawer } from './components/RecommendationDrawer'
 import { InterviewDrawer } from './components/InterviewDrawer'
 import { BatchUrlImportDrawer } from './components/BatchUrlImportDrawer'
+import { LearningProvider, QuestionLearning } from './components/LearningState'
+import { LearningDrawer } from './components/LearningDrawer'
 import { SourceStatistics } from './components/SourceStatistics'
 import { AssetSourceMetadata } from './components/AssetSourceMetadata'
 import { ExtractionQualityPanel } from './components/ExtractionQualityPanel'
@@ -173,6 +175,8 @@ function App() {
   const [isProfileOpen, setProfileOpen] = useState(false)
   const [isRecommendationOpen, setRecommendationOpen] = useState(false)
   const [isInterviewOpen, setInterviewOpen] = useState(false)
+  const [isLearningOpen, setLearningOpen] = useState(false)
+  const [interviewEntry, setInterviewEntry] = useState<{ key: string; id?: string }>({ key: 'default' })
   const reportedExtractionRunId = useRef<string | null>(null)
 
   const health = useQuery({
@@ -589,6 +593,9 @@ function App() {
           }
         />
       )}
+      <LearningProvider questionIds={questions.data?.items.map((question) => question.id) ?? []}
+        versionKey={questions.data?.items.map((question) => `${question.id}:${question.version}:${question.answer?.version ?? 0}`).join(',')}
+        enabled={activeTab === 'questions'}>
       <div className="question-list">
         {questions.data?.items.map((question, index) => (
           <article className="question-card" key={question.id}>
@@ -616,6 +623,7 @@ function App() {
               </Tag>
             </div>
             <SafeMarkdown className="question-text">{question.prompt}</SafeMarkdown>
+            <QuestionLearning questionId={question.id} questionVersion={question.version} answerVersion={question.answer?.version ?? null} />
             <SourceStatistics statistics={question.sourceStatistics} />
             <Divider plain>
               答案
@@ -649,6 +657,7 @@ function App() {
           </article>
         ))}
       </div>
+      </LearningProvider>
       {(questions.data?.total ?? 0) > 20 && (
         <Pagination
           current={page}
@@ -673,6 +682,7 @@ function App() {
           <Space wrap>
             <Button onClick={() => setProfileOpen(true)}>我的画像</Button>
             <Button type="primary" onClick={() => setRecommendationOpen(true)}>我的复习清单</Button>
+            <Button onClick={() => setLearningOpen(true)}>薄弱题复习</Button>
             <Button onClick={() => setInterviewOpen(true)}>模拟面试</Button>
           </Space>
           <div className="service-state" role="status" aria-live="polite">
@@ -1144,7 +1154,12 @@ function App() {
         }}
       />
 
-      <InterviewDrawer open={isInterviewOpen} onClose={() => setInterviewOpen(false)} notify={(kind, text) => {
+      <LearningDrawer open={isLearningOpen} onClose={() => setLearningOpen(false)} onOpenInterview={(id) => {
+        setLearningOpen(false)
+        setInterviewEntry({ key: crypto.randomUUID(), id })
+        setInterviewOpen(true)
+      }} />
+      <InterviewDrawer key={interviewEntry.key} initialSessionId={interviewEntry.id} open={isInterviewOpen} onClose={() => setInterviewOpen(false)} notify={(kind, text) => {
         if (kind === 'success') messageApi.success(text)
         else messageApi.error(text)
       }} />

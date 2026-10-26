@@ -3,6 +3,7 @@ import { Alert, Card, Space, Tag, Typography } from 'antd'
 import type { RecommendationItem } from '../api/client'
 import { SafeMarkdown } from './SafeMarkdown'
 import { SourceStatistics } from './SourceStatistics'
+import { QuestionLearning } from './LearningState'
 
 
 interface RecommendationItemCardProps {
@@ -45,6 +46,7 @@ export function RecommendationItemCard({ item }: RecommendationItemCardProps) {
       </div>
 
       <SafeMarkdown className="recommendation-question">{item.prompt}</SafeMarkdown>
+      {item.questionId && <QuestionLearning questionId={item.questionId} questionVersion={item.questionVersion} answerVersion={item.answerVersion} />}
       <SourceStatistics statistics={item.sourceStatistics} />
 
       {item.decision === 'INCLUDED' && (

@@ -12,6 +12,7 @@ import {
 import { RecommendationItemCard } from './RecommendationItemCard'
 import { RecommendationExportButton } from './RecommendationExportButton'
 import { ProjectFollowupsButton } from './ProjectFollowupsButton'
+import { LearningProvider } from './LearningState'
 
 
 interface RecommendationDrawerProps {
@@ -191,11 +192,13 @@ export function RecommendationDrawer({ open, onClose, notify }: RecommendationDr
           {items.data?.items.length === 0 && (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前筛选条件下没有题目" />
           )}
+          <LearningProvider questionIds={items.data?.items.flatMap((item) => item.questionId ? [item.questionId] : []) ?? []} enabled={open && run.isCurrent}>
           <Space orientation="vertical" size="middle" className="recommendation-list">
             {items.data?.items.map((item) => (
               <RecommendationItemCard key={item.id} item={item} />
             ))}
           </Space>
+          </LearningProvider>
           {(items.data?.total ?? 0) > 20 && (
             <Pagination
               current={page}

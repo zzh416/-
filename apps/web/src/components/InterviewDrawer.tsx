@@ -7,13 +7,14 @@ import { createInterview, fetchInterview, fetchInterviewHistory, interviewAction
 import { InterviewRound } from './InterviewRound'
 import { InterviewReport } from './InterviewReport'
 import { SafeMarkdown } from './SafeMarkdown'
+import { InterviewLearningCandidates } from './InterviewLearningCandidates'
 
-interface Props { open: boolean; onClose: () => void; notify: (kind: 'success' | 'error', text: string) => void }
+interface Props { open: boolean; onClose: () => void; notify: (kind: 'success' | 'error', text: string) => void; initialSessionId?: string }
 const labels: Record<InterviewSession['status'], string> = { PLANNING: 'AI 正在出题', PLAN_FAILED: '出题失败', READY: '计划已准备', ACTIVE: '正在作答', PAUSED: '已暂停', REVIEWING: '生成反馈', AWAITING_NEXT: '等待选择下一步', COMPLETED: '本轮结束' }
 
-export function InterviewDrawer({ open, onClose, notify }: Props) {
+export function InterviewDrawer({ open, onClose, notify, initialSessionId }: Props) {
   const queryClient = useQueryClient()
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(initialSessionId ?? null)
   const [creating, setCreating] = useState(false)
   const history = useQuery({ queryKey: ['interview-history'], queryFn: fetchInterviewHistory, enabled: open })
   const recommendation = useQuery({ queryKey: ['recommendation-run', 'latest'], queryFn: fetchLatestRecommendationRun, enabled: open })
@@ -60,6 +61,7 @@ export function InterviewDrawer({ open, onClose, notify }: Props) {
         {session.turns.length > 0 && session.status !== 'COMPLETED' && <InterviewRound key={`${session.id}:${session.turns[session.turns.length - 1].id}`} session={session} onUpdate={update} notify={notify} />}
         {session.status === 'COMPLETED' ? <InterviewReport session={session} /> : <Popconfirm title="结束本轮面试？" description="已保存的草稿、回答和反馈会保留。" onConfirm={() => action.mutate('FINISH')}><Button danger loading={action.isPending}>结束本轮面试</Button></Popconfirm>}
       </>}
+      {!setup && session && <InterviewLearningCandidates sessionId={session.id} sessionVersion={session.version} enabled={open} />}
       {!setup && !session && !current.isLoading && <Empty description="请选择一条面试记录" />}
     </Space>
   </Drawer>
