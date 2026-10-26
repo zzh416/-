@@ -65,6 +65,7 @@ class QuestionView(APIModel):
     version: int
     answer: AnswerView | None
     ai_answer: AIAnswerView | None = None
+    confirmed_ai_answer_id: UUID | None = None
     effective_answer: EffectiveAnswerView | None = None
     note: NoteView | None
     created_at: datetime

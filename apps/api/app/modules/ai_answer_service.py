@@ -44,13 +44,25 @@ class InputContext:
             for row in db.scalars(select(QuestionOccurrence).where(QuestionOccurrence.question_id.in_(qids),
                     QuestionOccurrence.review_status != "REJECTED").order_by(QuestionOccurrence.created_at, QuestionOccurrence.id)).all():
                 ids[row.question_id].extend(i for i in (row.answer_source_chunk_id, row.source_chunk_id) if i)
-        ids = {qid: list(dict.fromkeys(values))[:3] for qid, values in ids.items()}
+                for span in row.answer_spans or []:
+                    if isinstance(span, dict):
+                        try:
+                            ids[row.question_id].append(UUID(str(span.get("sourceChunkId"))))
+                        except (ValueError, TypeError):
+                            continue
+        ids = {qid: list(dict.fromkeys(values)) for qid, values in ids.items()}
         chunk_ids = {cid for values in ids.values() for cid in values}
         chunks = {c.id: c for c in db.scalars(select(TextChunk).join(AssetVersion).join(Asset)
             .where(TextChunk.id.in_(chunk_ids), Asset.owner_id == owner,
                    AssetVersion.version == Asset.current_version)).all()} if chunk_ids else {}
-        self.sources = {qid: [{"chunk_id": str(cid), "content": chunks[cid].content[:2000]}
-                       for cid in values if cid in chunks] for qid, values in ids.items()}
+        self.sources = {}
+        for qid, values in ids.items():
+            valid = [chunks[cid] for cid in values if cid in chunks]
+            # Keep source documents together and their passages in original order.
+            version_order = {vid: index for index, vid in enumerate(dict.fromkeys(c.asset_version_id for c in valid))}
+            valid.sort(key=lambda c: (version_order[c.asset_version_id], c.ordinal, str(c.id)))
+            # Historical or foreign passages must not consume the citation budget.
+            self.sources[qid] = [{"chunk_id": str(c.id), "content": c.content[:2000]} for c in valid[:3]]
 
     def snapshot(self, question, use_profile, include_note):
         return {"question": question.prompt, "question_version": question.version,
@@ -103,6 +115,7 @@ def attach_answers(db, questions):
         currents = {r.id: is_current(db, r, q, context) for r in runs}
         q.ai_answer = run_view(db, runs[0], current=currents[runs[0].id]) if runs else None
         selected = next((r for r in runs if r.status == "SUCCEEDED" and r.review_status == "CONFIRMED" and currents[r.id]), None)
+        q.confirmed_ai_answer_id = selected.id if selected is not None else None
         if q.answer is not None:
             q.effective_answer = EffectiveAnswerView(content=q.answer.content, source_type=q.answer.source_type,
                                                      version=q.answer.version, ai_answer_id=None)
