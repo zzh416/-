@@ -55,6 +55,7 @@ import { ExtractionReviewDrawer } from './components/ExtractionReviewDrawer'
 import { ProfileDrawer } from './components/ProfileDrawer'
 import { RecommendationDrawer } from './components/RecommendationDrawer'
 import { InterviewDrawer } from './components/InterviewDrawer'
+import { BatchUrlImportDrawer } from './components/BatchUrlImportDrawer'
 import { SourceStatistics } from './components/SourceStatistics'
 import { AssetSourceMetadata } from './components/AssetSourceMetadata'
 import { ExtractionQualityPanel } from './components/ExtractionQualityPanel'
@@ -155,6 +156,7 @@ function App() {
   const [isCreateCollectionOpen, setCreateCollectionOpen] = useState(false)
   const [isImportOpen, setImportOpen] = useState(false)
   const [isUrlImportOpen, setUrlImportOpen] = useState(false)
+  const [isBatchUrlImportOpen, setBatchUrlImportOpen] = useState(false)
   const [isQuestionOpen, setQuestionOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<'question' | 'answer' | 'note'>('question')
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null)
@@ -463,6 +465,7 @@ function App() {
             <Button loading={fileImport.isPending}>导入文件</Button>
           </Upload>
           <Button onClick={() => setUrlImportOpen(true)}>导入网页链接</Button>
+          <Button onClick={() => setBatchUrlImportOpen(true)}>批量导入链接</Button>
           <Button type="primary" onClick={() => setImportOpen(true)}>
             粘贴文字
           </Button>
@@ -1217,6 +1220,15 @@ function App() {
           </Form.Item>
         </Form>
       </Modal>
+      {activeCollectionId && <BatchUrlImportDrawer
+        open={isBatchUrlImportOpen}
+        collectionId={activeCollectionId}
+        onClose={() => setBatchUrlImportOpen(false)}
+        onOpenAsset={(id) => {
+          setBatchUrlImportOpen(false)
+          setSelectedAssetId(id)
+        }}
+      />}
     </Layout>
   )
 }

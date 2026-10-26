@@ -45,6 +45,7 @@ export interface IngestionUnitFailure {
 
 export interface IngestionJob {
   id: string
+  celeryTaskId: string | null
   status: 'QUEUED' | 'PROCESSING' | 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'WAITING_FOR_CONFIGURATION' | 'FAILED'
   stage: string
   processedUnits: number
