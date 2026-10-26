@@ -4,7 +4,8 @@ import hashlib
 from uuid import uuid4
 
 from app.adapters.glm_text import TextModelError, TextModelNotConfigured
-from app.modules.project_matching import _topics, match_projects, prepare_projects
+from app.modules.project_matching import _topics
+from app.modules.interview_project_evidence import project_evidence, related_to_evidence, resolve_source_quote
 from app.modules.question_extraction_service import initial_review_status
 from app.modules.question_identity import question_identity
 from app.modules.recommendation_service import PreferenceSnapshot, SkillSnapshot, _alias_pattern, _related_to_skill, build_recommendation, detect_technologies
@@ -94,14 +95,19 @@ def _question_basis(state, item, project, diagnostics=None):
         if not project:
             _reject(diagnostics, "BASIS_PROJECT")
             return None
-        if not item.project_quote or item.project_quote not in project["description"]:
+        if item.project_evidence_id:
+            evidence = next((e for e in project_evidence(project) if e["id"] == item.project_evidence_id), None)
+            quote = evidence["text"] if evidence else None
+        else:
+            quote = resolve_source_quote(item.project_quote, project["description"])
+        if not quote:
             _reject(diagnostics, "BASIS_QUOTE")
             return None
-        if not match_projects(item.question, prepare_projects([project])):
+        if not related_to_evidence(item.question, quote):
             _reject(diagnostics, "BASIS_TOPIC")
             return None
-        return {"project_id": project["id"], "project_name": project["name"], "project_quote": item.project_quote, "skill_basis": None}
-    if state["project_id"] or item.project_quote or not item.skill:
+        return {"project_id": project["id"], "project_name": project["name"], "project_quote": quote, "skill_basis": None}
+    if state["project_id"] or item.project_quote or item.project_evidence_id or not item.skill:
         _reject(diagnostics, "BASIS_SCOPE")
         return None
     skill = next((s for s in state["profile_snapshot"]["skills"] if s["review_status"] == "CONFIRMED"
@@ -125,7 +131,7 @@ def _payload(state):
             "confirmed_skills": [item.canonical_name for item in skills if item.review_status == "CONFIRMED"],
             "confirmed_skill_details": [{"canonical_name": item.canonical_name, "display_name": item.display_name} for item in skills if item.review_status == "CONFIRMED"],
             "excluded_technologies": [item.technology for item in rules if item.rule_type == "EXCLUDE" and item.scope in {"QUESTION", "BOTH"}],
-            "projects": [{"id": item["id"], "name": item["name"], "description": item["description"]} for item in projects(state)]}
+            "projects": [{"id": item["id"], "name": item["name"], "description": item["description"], "evidence": project_evidence(item)} for item in projects(state)]}
 
 
 class PlanningCancelled(Exception):
