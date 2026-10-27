@@ -15,9 +15,9 @@ from app.modules.project_matching import _topics, match_projects, prepare_projec
 from app.modules.interview_planning import PlanningCancelled, _payload, allowed, complete_plan, constraints, make_plan, projects, prompt_hash
 from app.modules.recommendation_context import (
     profile_context,
-    recommendation_run_is_current,
     rule_context,
 )
+from app.modules.recommendation_state import recommendation_run_is_current
 
 
 def now():

@@ -10,7 +10,7 @@ from app.adapters.text_provider import get_text_model_config
 from app.db import SessionLocal
 from app.models import ProjectFollowupRun, RecommendationRun, RecommendationItem
 from app.modules.followup_validation import validate_followups
-from app.modules.recommendation_context import recommendation_run_is_current
+from app.modules.recommendation_state import recommendation_run_is_current
 from app.modules.recommendation_service import PreferenceSnapshot, SkillSnapshot
 
 FOLLOWUP_VERSION = "project-followups-v1"

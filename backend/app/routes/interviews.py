@@ -14,9 +14,9 @@ from app.modules import interview_engine as engine
 from app.modules.interview_service import _fail_state, current, make_plan, now, prompt_hash, save
 from app.modules.recommendation_context import (
     profile_context,
-    recommendation_run_is_current,
     rule_context,
 )
+from app.modules.recommendation_state import recommendation_run_is_current
 from app.schemas.interviews import InterviewAction, InterviewAnswer, InterviewCreate, InterviewDraft, InterviewHistory, InterviewView
 from app.workers.celery_app import celery_app
 

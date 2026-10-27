@@ -15,7 +15,7 @@ from app.idempotency import remember_request, replay_resource_id, request_hash
 from app.models import ProjectFollowupRun, RecommendationItem, RecommendationRun
 from app.modules.followup_export import render_followups
 from app.modules.project_followup_service import inputs_current, retry_allowed
-from app.modules.recommendation_context import recommendation_run_is_current
+from app.modules.recommendation_state import recommendation_run_is_current
 from app.schemas.project_followups import FollowupCreate, FollowupRunView, FollowupHistoryPage
 from app.workers.celery_app import celery_app
 

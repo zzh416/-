@@ -27,8 +27,10 @@ from app.modules.recommendation_context import (
     content_fingerprint as _content_fingerprint,
     deduplicate_questions as _deduplicate_questions,
     profile_context as _profile_context,
-    recommendation_run_is_current,
     rule_context as _rule_context,
+)
+from app.modules.recommendation_state import (
+    recommendation_run_is_current,
     visible_questions as _visible_questions,
 )
 from app.modules.recommendation_service import (
