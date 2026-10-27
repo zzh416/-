@@ -9,10 +9,14 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.identity import get_current_user_id
 from app.idempotency import remember_request, replay_resource_id, request_hash
-from app.models import InterviewSession, RecommendationItem, User
+from app.models import InterviewSession, RecommendationItem, RecommendationRun, User
 from app.modules import interview_engine as engine
 from app.modules.interview_service import _fail_state, current, make_plan, now, prompt_hash, save
-from app.routes.recommendations import _owned_run, _profile_context, _rule_context, _run_view
+from app.modules.recommendation_context import (
+    profile_context,
+    recommendation_run_is_current,
+    rule_context,
+)
 from app.schemas.interviews import InterviewAction, InterviewAnswer, InterviewCreate, InterviewDraft, InterviewHistory, InterviewView
 from app.workers.celery_app import celery_app
 
@@ -25,6 +29,18 @@ def _owned(db, session_id, owner_id, lock=False):
     if not row:
         raise HTTPException(status_code=404, detail="模拟面试记录不存在")
     return row
+
+
+def _owned_recommendation(db, run_id, owner_id):
+    run = db.scalar(
+        select(RecommendationRun).where(
+            RecommendationRun.id == run_id,
+            RecommendationRun.owner_id == owner_id,
+        )
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="个性化清单不存在")
+    return run
 
 
 def _view(db, row):
@@ -70,13 +86,13 @@ def create_interview(payload: InterviewCreate, db: Session = Depends(get_db), ow
     replay = replay_resource_id(db, owner_id, "interview:create", idempotency_key, digest)
     if replay:
         return _view(db, _owned(db, replay, owner_id))
-    run = _owned_run(db, payload.recommendation_run_id, owner_id) if payload.recommendation_run_id else None
+    run = _owned_recommendation(db, payload.recommendation_run_id, owner_id) if payload.recommendation_run_id else None
     if payload.question_source == "AI":
-        _, profile_version, profile_snapshot, _ = _profile_context(db, owner_id)
-        rule_snapshot, _, rules_fingerprint = _rule_context(db, owner_id)
+        _, profile_version, profile_snapshot, _ = profile_context(db, owner_id)
+        rule_snapshot, _, rules_fingerprint = rule_context(db, owner_id)
         run = None
     else:
-        if not _run_view(db, run, owner_id).is_current:
+        if not recommendation_run_is_current(db, run, owner_id):
             raise HTTPException(status_code=409, detail="请先按当前画像和偏好重新生成复习清单")
         profile_snapshot, profile_version, rule_snapshot = run.profile_snapshot, run.profile_version, run.rule_snapshot
         rules_fingerprint = run.rules_fingerprint

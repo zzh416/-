@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import settings
+from app.modules.recommendation_context import RecommendationContextError
 from app.routes import ai_answers, assets, collections, extractions, health, interviews, learning, profile_projects, profiles, project_followups, questions, recommendations, url_imports
 
 app = FastAPI(
@@ -30,6 +31,13 @@ async def validation_error_response(request: Request, exc: RequestValidationErro
               for error in exc.errors()]
     return Response(content=json.dumps({"detail": errors}, ensure_ascii=True),
                     status_code=422, media_type="application/json")
+
+
+@app.exception_handler(RecommendationContextError)
+async def recommendation_context_error_response(
+    request: Request, exc: RecommendationContextError
+):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 allowed_origins = {"http://localhost:5173", "http://127.0.0.1:5173"}
 request_id_pattern = re.compile(r"^[A-Za-z0-9._-]{1,64}$")

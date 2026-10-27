@@ -10,8 +10,8 @@ from app.adapters.text_provider import get_text_model_config
 from app.db import SessionLocal
 from app.models import ProjectFollowupRun, RecommendationRun, RecommendationItem
 from app.modules.followup_validation import validate_followups
+from app.modules.recommendation_context import recommendation_run_is_current
 from app.modules.recommendation_service import PreferenceSnapshot, SkillSnapshot
-from app.routes.recommendations import _run_view
 
 FOLLOWUP_VERSION = "project-followups-v1"
 
@@ -19,7 +19,8 @@ FOLLOWUP_VERSION = "project-followups-v1"
 def inputs_current(db, run):
     recommendation = db.get(RecommendationRun, run.recommendation_run_id)
     return bool(recommendation and recommendation.owner_id == run.owner_id and
-                run.algorithm_version == FOLLOWUP_VERSION and _run_view(db, recommendation, run.owner_id).is_current)
+                run.algorithm_version == FOLLOWUP_VERSION and
+                recommendation_run_is_current(db, recommendation, run.owner_id))
 
 
 def retry_allowed(run):

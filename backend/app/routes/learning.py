@@ -11,9 +11,9 @@ from app.identity import get_current_user_id
 from app.idempotency import remember_request, replay_resource_id, request_hash
 from app.models import InterviewSession, LearningRecord, Question, QuestionOccurrence, RecommendationItem, User
 from app.modules.question_extraction_service import initial_review_status
+from app.modules.recommendation_context import profile_context, rule_context
 from app.modules.recommendation_service import build_recommendation
 from app.modules.ai_answer_service import attach_answers
-from app.routes.recommendations import _profile_context, _rule_context
 from app.schemas.learning import (LearningCandidate, LearningCandidates, LearningItem, LearningLookup,
     LearningLookupPage, LearningPage, LearningUpdate, LearningView)
 
@@ -121,8 +121,8 @@ def mark_item(record_id: UUID, payload: LearningUpdate, db: Session = Depends(ge
 def items(db: Session = Depends(get_db), owner: UUID = Depends(get_current_user_id),
           state: Literal["TO_REVIEW", "ANY", "MASTERED", "WEAK", "UNKNOWN"] = "TO_REVIEW",
           q: str = Query(default="", max_length=200), page: int = Query(default=1, ge=1), page_size: int = Query(default=20, alias="pageSize", ge=1, le=100)):
-    _, _, _, skills = _profile_context(db, owner)
-    _, rules, _ = _rule_context(db, owner)
+    _, _, _, skills = profile_context(db, owner)
+    _, rules, _ = rule_context(db, owner)
     records = db.scalars(select(LearningRecord).where(LearningRecord.owner_id == owner, LearningRecord.status != "UNMARKED")
                         .options(selectinload(LearningRecord.question).selectinload(Question.answer),
                                  selectinload(LearningRecord.question).selectinload(Question.note))).all()

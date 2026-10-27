@@ -13,7 +13,11 @@ from app.models import InterviewSession, RecommendationRun
 from app.modules import interview_engine as engine
 from app.modules.project_matching import _topics, match_projects, prepare_projects
 from app.modules.interview_planning import PlanningCancelled, _payload, allowed, complete_plan, constraints, make_plan, projects, prompt_hash
-from app.routes.recommendations import _profile_context, _rule_context, _run_view
+from app.modules.recommendation_context import (
+    profile_context,
+    recommendation_run_is_current,
+    rule_context,
+)
 
 
 def now():
@@ -22,11 +26,15 @@ def now():
 
 def current(db, row):
     if row.state.get("question_source") == "AI":
-        _, version, _, _ = _profile_context(db, row.owner_id)
-        _, _, fingerprint = _rule_context(db, row.owner_id)
+        _, version, _, _ = profile_context(db, row.owner_id)
+        _, _, fingerprint = rule_context(db, row.owner_id)
         return row.state.get("profile_version") == version and row.state.get("rules_fingerprint") == fingerprint
     run = db.get(RecommendationRun, row.recommendation_run_id)
-    return bool(run and run.owner_id == row.owner_id and _run_view(db, run, row.owner_id).is_current)
+    return bool(
+        run
+        and run.owner_id == row.owner_id
+        and recommendation_run_is_current(db, run, row.owner_id)
+    )
 
 
 def save(db, row, state):

@@ -1,8 +1,6 @@
 """Create and read versioned personalized review lists."""
 from __future__ import annotations
 
-import hashlib
-import json
 from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import quote
@@ -10,32 +8,33 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import Response
-from sqlalchemy import cast, exists, func, or_, select
+from sqlalchemy import cast, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.identity import get_current_user_id
 from app.idempotency import remember_request, replay_resource_id, request_hash
 from app.models import (
     Answer,
-    PreferenceRule,
-    ProfileVersion,
     Question,
     QuestionNote,
-    QuestionOccurrence,
     RecommendationItem,
     RecommendationRun,
-    UserProfile,
+)
+from app.modules.recommendation_context import (
+    content_fingerprint as _content_fingerprint,
+    deduplicate_questions as _deduplicate_questions,
+    profile_context as _profile_context,
+    recommendation_run_is_current,
+    rule_context as _rule_context,
+    visible_questions as _visible_questions,
 )
 from app.modules.recommendation_service import (
     ALGORITHM_VERSION,
-    PreferenceSnapshot,
-    SkillSnapshot,
     build_recommendation,
 )
-from app.modules.question_identity import question_identity
 from app.modules.recommendation_export import render_prep_package
 from app.modules.project_matching import PROJECT_MATCH_VERSION, match_projects, prepare_projects
 from app.modules.source_statistics import question_source_statistics
@@ -49,165 +48,7 @@ from app.schemas.recommendations import (
 router = APIRouter(prefix="/recommendation-runs", tags=["recommendations"])
 
 
-def _rule_context(db: Session, owner_id: UUID) -> tuple[list[dict], list[PreferenceSnapshot], str]:
-    rules = db.scalars(
-        select(PreferenceRule)
-        .where(
-            PreferenceRule.owner_id == owner_id,
-            PreferenceRule.deleted_at.is_(None),
-            PreferenceRule.is_active.is_(True),
-        )
-        .order_by(PreferenceRule.created_at, PreferenceRule.id)
-    ).all()
-    snapshot = [
-        {
-            "id": str(rule.id),
-            "rule_type": rule.rule_type,
-            "technology": rule.technology,
-            "canonical_technology": rule.canonical_technology,
-            "category": rule.category,
-            "scope": rule.scope,
-            "version": rule.version,
-        }
-        for rule in rules
-    ]
-    fingerprint = hashlib.sha256(
-        json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-    return (
-        snapshot,
-        [
-            PreferenceSnapshot(
-                rule.rule_type,
-                rule.canonical_technology,
-                rule.technology,
-                rule.category,
-                rule.scope,
-            )
-            for rule in rules
-        ],
-        fingerprint,
-    )
-
-
-def _profile_context(
-    db: Session, owner_id: UUID
-) -> tuple[UUID | None, int, dict, list[SkillSnapshot]]:
-    profile = db.scalar(select(UserProfile).where(UserProfile.owner_id == owner_id))
-    if profile is None or profile.current_version == 0:
-        return None, 0, {"target_role": None, "skills": [], "projects": [], "project_matching_version": PROJECT_MATCH_VERSION}, []
-    version = db.scalar(
-        select(ProfileVersion)
-        .where(
-            ProfileVersion.profile_id == profile.id,
-            ProfileVersion.version == profile.current_version,
-        )
-        .options(selectinload(ProfileVersion.skills))
-    )
-    if version is None:
-        raise HTTPException(status_code=409, detail="当前画像版本不存在，请重新保存画像")
-    skill_snapshot = [
-        {
-            "canonical_name": skill.canonical_name,
-            "display_name": skill.display_name,
-            "category": skill.category,
-            "review_status": skill.review_status,
-        }
-        for skill in version.skills
-    ]
-    return (
-        version.id,
-        version.version,
-        {"target_role": version.target_role, "skills": skill_snapshot, "projects": version.projects, "project_matching_version": PROJECT_MATCH_VERSION},
-        [
-            SkillSnapshot(
-                skill.canonical_name,
-                skill.display_name,
-                skill.category,
-                skill.review_status,
-            )
-            for skill in version.skills
-        ],
-    )
-
-
-def _visible_questions(db: Session, owner_id: UUID) -> list[Question]:
-    from app.modules.ai_answer_service import attach_answers
-    has_occurrence = exists(
-        select(QuestionOccurrence.id).where(QuestionOccurrence.question_id == Question.id)
-    )
-    has_visible_occurrence = exists(
-        select(QuestionOccurrence.id).where(
-            QuestionOccurrence.question_id == Question.id,
-            QuestionOccurrence.review_status != "REJECTED",
-        )
-    )
-    questions = list(
-        db.scalars(
-            select(Question)
-            .where(
-                Question.owner_id == owner_id,
-                or_(~has_occurrence, has_visible_occurrence),
-            )
-            .options(selectinload(Question.answer), selectinload(Question.note))
-            .order_by(Question.id)
-        ).all()
-    )
-    attach_answers(db, questions)
-    return questions
-
-
-def _content_fingerprint(questions: list[Question], source_statistics: dict) -> str:
-    snapshot = [
-        {
-            "id": str(question.id),
-            "question_version": question.version,
-            "answer_version": question.answer.version if question.answer is not None else None,
-            **({"ai_answer_id": str(question.effective_answer.ai_answer_id), "ai_answer_version": question.effective_answer.version}
-               if getattr(question, "effective_answer", None) and question.effective_answer.ai_answer_id else {}),
-            "sources": source_statistics[question.id].model_dump(mode="json"),
-        }
-        for question in questions
-    ]
-    return hashlib.sha256(
-        json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-
-
-def _deduplicate_questions(questions: list[Question]) -> list[Question]:
-    """Keep one equivalent prompt, preferring a usable and more recently edited answer."""
-
-    selected: dict[str, Question] = {}
-    for question in questions:
-        identity = question_identity(question.prompt)
-        current = selected.get(identity)
-        if current is None:
-            selected[identity] = question
-            continue
-        question_rank = (
-            2 if question.answer and question.answer.content.strip() else int(bool(getattr(question, "effective_answer", None))),
-            question.answer.version if question.answer is not None else 0,
-            question.version,
-            question.updated_at,
-            str(question.id),
-        )
-        current_rank = (
-            2 if current.answer and current.answer.content.strip() else int(bool(getattr(current, "effective_answer", None))),
-            current.answer.version if current.answer is not None else 0,
-            current.version,
-            current.updated_at,
-            str(current.id),
-        )
-        if question_rank > current_rank:
-            selected[identity] = question
-    return list(selected.values())
-
-
 def _run_view(db: Session, run: RecommendationRun, owner_id: UUID) -> RecommendationRunView:
-    _, current_profile_version, _, _ = _profile_context(db, owner_id)
-    _, _, current_fingerprint = _rule_context(db, owner_id)
-    questions = _visible_questions(db, owner_id)
-    current_content_fingerprint = _content_fingerprint(questions, question_source_statistics(db, owner_id, questions))
     return RecommendationRunView(
         id=run.id,
         status=run.status,
@@ -215,13 +56,7 @@ def _run_view(db: Session, run: RecommendationRun, owner_id: UUID) -> Recommenda
         profile_version=run.profile_version,
         profile_snapshot=run.profile_snapshot,
         rule_snapshot=run.rule_snapshot,
-        is_current=(
-            run.profile_version == current_profile_version
-            and run.rules_fingerprint == current_fingerprint
-            and run.content_fingerprint == current_content_fingerprint
-            and run.algorithm_version == ALGORITHM_VERSION
-            and run.profile_snapshot.get("project_matching_version") == PROJECT_MATCH_VERSION
-        ),
+        is_current=recommendation_run_is_current(db, run, owner_id),
         total_count=run.total_count,
         included_count=run.included_count,
         excluded_count=run.excluded_count,

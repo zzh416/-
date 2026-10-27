@@ -15,7 +15,7 @@ from app.idempotency import remember_request, replay_resource_id, request_hash
 from app.models import ProjectFollowupRun, RecommendationItem, RecommendationRun
 from app.modules.followup_export import render_followups
 from app.modules.project_followup_service import inputs_current, retry_allowed
-from app.routes.recommendations import _owned_run, _run_view
+from app.modules.recommendation_context import recommendation_run_is_current
 from app.schemas.project_followups import FollowupCreate, FollowupRunView, FollowupHistoryPage
 from app.workers.celery_app import celery_app
 
@@ -44,8 +44,12 @@ def _dispatch(db, run):
         db.commit()
 
 
-def _lock_recommendation(db, run_id, owner_id):
-    run = db.scalar(select(RecommendationRun).where(RecommendationRun.id == run_id, RecommendationRun.owner_id == owner_id).with_for_update())
+def _owned_recommendation(db, run_id, owner_id, *, lock=False):
+    statement = select(RecommendationRun).where(
+        RecommendationRun.id == run_id,
+        RecommendationRun.owner_id == owner_id,
+    )
+    run = db.scalar(statement.with_for_update() if lock else statement)
     if run is None:
         raise HTTPException(status_code=404, detail="个性化清单不存在")
     return run
@@ -54,12 +58,12 @@ def _lock_recommendation(db, run_id, owner_id):
 @router.post("/recommendation-runs/{run_id}/project-followups", response_model=FollowupRunView, status_code=202)
 def create_followup(run_id: UUID, payload: FollowupCreate, db: Session = Depends(get_db), owner_id: UUID = Depends(get_current_user_id),
                     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", min_length=8, max_length=200)):
-    recommendation = _lock_recommendation(db, run_id, owner_id)
+    recommendation = _owned_recommendation(db, run_id, owner_id, lock=True)
     digest = request_hash({"runId": str(run_id), **payload.model_dump(mode="json")})
     replay = replay_resource_id(db, owner_id, "project-followup:create", idempotency_key, digest)
     if replay:
         return _view(db, _owned(db, replay, owner_id))
-    if not _run_view(db, recommendation, owner_id).is_current:
+    if not recommendation_run_is_current(db, recommendation, owner_id):
         raise HTTPException(status_code=409, detail="请先按最新画像和偏好重新生成复习清单")
     project = next((item for item in recommendation.profile_snapshot.get("projects", []) if item["id"] == str(payload.project_id) and item["review_status"] == "CONFIRMED"), None)
     if project is None:
@@ -89,7 +93,7 @@ def create_followup(run_id: UUID, payload: FollowupCreate, db: Session = Depends
 
 @router.get("/recommendation-runs/{run_id}/project-followups/latest", response_model=FollowupRunView | None)
 def latest_followup(run_id: UUID, project_id: UUID = Query(alias="projectId"), db: Session = Depends(get_db), owner_id: UUID = Depends(get_current_user_id)):
-    _owned_run(db, run_id, owner_id)
+    _owned_recommendation(db, run_id, owner_id)
     run = db.scalar(select(ProjectFollowupRun).where(ProjectFollowupRun.owner_id == owner_id, ProjectFollowupRun.recommendation_run_id == run_id, ProjectFollowupRun.project_id == project_id).order_by(ProjectFollowupRun.created_at.desc(), ProjectFollowupRun.id.desc()).limit(1))
     return _view(db, run) if run else None
 
@@ -110,7 +114,7 @@ def followup_history(project_id: UUID = Query(alias="projectId"), db: Session = 
 def retry_followup(run_id: UUID, db: Session = Depends(get_db), owner_id: UUID = Depends(get_current_user_id),
                    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", min_length=8, max_length=200)):
     run = _owned(db, run_id, owner_id, lock=True)
-    _lock_recommendation(db, run.recommendation_run_id, owner_id)
+    _owned_recommendation(db, run.recommendation_run_id, owner_id, lock=True)
     digest = request_hash({"runId": str(run_id)})
     if replay_resource_id(db, owner_id, "project-followup:retry", idempotency_key, digest):
         return _view(db, run)

@@ -14,6 +14,7 @@ from app.adapters.text_provider import get_text_model_config
 from app.db import SessionLocal
 from app.config import settings
 from app.models import AIAnswerRun, Asset, AssetVersion, Question, QuestionOccurrence, TextChunk
+from app.modules.recommendation_context import profile_context, rule_context
 from app.schemas.ai_answers import AIAnswerView, EffectiveAnswerView
 
 
@@ -28,13 +29,12 @@ def fingerprint(value):
 class InputContext:
     """Read shared profile/preferences once and source passages in a bounded bulk query."""
     def __init__(self, db, owner, questions):
-        from app.routes.recommendations import _profile_context, _rule_context
-        _, self.profile_version, profile, _ = _profile_context(db, owner)
+        _, self.profile_version, profile, _ = profile_context(db, owner)
         self.profile = {"target_role": profile.get("target_role"),
             "skills": [s for s in profile["skills"] if s["review_status"] == "CONFIRMED"],
             "projects": [{"name": p["name"], "description": p["description"][:1500]}
                          for p in profile.get("projects", []) if p["review_status"] == "CONFIRMED"][:5]}
-        self.rules, _, self.rules_fingerprint = _rule_context(db, owner)
+        self.rules, _, self.rules_fingerprint = rule_context(db, owner)
         ids = defaultdict(list)
         for q in questions:
             if q.source_chunk_id:
