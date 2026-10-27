@@ -1115,7 +1115,7 @@ function App() {
                     : extractionRun.data.status === 'PARTIAL_SUCCESS'
                       ? '题目自动整理部分完成'
                     : extractionRun.data.status === 'WAITING_FOR_CONFIGURATION'
-                      ? '等待 GLM 配置'
+                      ? '等待文本模型配置'
                       : extractionRun.data.status === 'FAILED'
                         ? '题目自动整理失败'
                         : '正在自动整理题目'

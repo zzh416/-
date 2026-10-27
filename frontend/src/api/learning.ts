@@ -1,5 +1,5 @@
 import { apiRequest, jsonRequest } from './client'
-import type { AnswerSourceType } from './aiAnswers'
+import type { AnswerSourceType } from './aiAnswerTypes'
 
 export type LearningStatus = 'UNMARKED' | 'MASTERED' | 'WEAK' | 'UNKNOWN'
 export type LearningFilter = 'TO_REVIEW' | 'ANY' | Exclude<LearningStatus, 'UNMARKED'>

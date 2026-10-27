@@ -1,5 +1,5 @@
 import { Space, Tag, Typography } from 'antd'
-import type { AnswerSourceType } from '../api/aiAnswers'
+import type { AnswerSourceType } from '../api/aiAnswerTypes'
 
 const answerOriginLabel = (sourceType: AnswerSourceType | null | undefined) => {
   if (sourceType === 'AI_GENERATED') return 'AI 补充答案'

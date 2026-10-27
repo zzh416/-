@@ -1,5 +1,5 @@
 import { apiRequest, idempotentCreate, jsonRequest, type SourceStatistics } from './client'
-import type { AnswerSourceType } from './aiAnswers'
+import type { AnswerSourceType } from './aiAnswerTypes'
 
 export type QuestionSource = 'BANK' | 'AI' | 'HYBRID'
 

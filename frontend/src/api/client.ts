@@ -1,4 +1,4 @@
-import type { AIAnswerRun, AnswerSourceType, EffectiveAnswer } from './aiAnswers'
+import type { AIAnswerRun, AnswerSourceType, EffectiveAnswer } from './aiAnswerTypes'
 
 export interface HealthCheck {
   status: string
