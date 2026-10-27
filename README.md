@@ -51,7 +51,7 @@
 
 - 前端：React、TypeScript、Vite、Ant Design、TanStack Query
 - 后端：FastAPI、SQLAlchemy、Alembic
-- 数据：PostgreSQL（pgvector 镜像为后续阶段预留）
+- 数据：PostgreSQL（镜像包含 pgvector，当前业务以关系数据为主）
 - 文档解析：pypdf、python-docx、Trafilatura、LibreOffice、Poppler（扫描 PDF 单页转图）
 - 动态网页：Playwright、Chromium（独立无密钥容器）
 - 图片 OCR：智谱 `glm-ocr` 或 DeepSeek `deepseek-flash`
@@ -68,8 +68,7 @@ interview-knowledge-hub/
 ├── infra/                 # Docker Compose、环境变量模板、备份与恢复脚本
 ├── data/                  # 本机上传原件（Git 忽略）
 ├── backups/               # 本机备份（Git 忽略）
-├── docs/                  # 用户功能边界与当前架构说明
-└── tests/                 # 跨服务测试夹具
+└── docs/                  # 用户功能边界与当前架构说明
 ```
 
 PostgreSQL 和 Redis 由 `infra/docker-compose.yml` 启动并使用 Docker 数据卷，不在仓库中保存数据库文件。数据库表结构属于后端，因此 Alembic 迁移保留在 `backend/migrations/`。完整说明见[项目目录与架构](./docs/项目目录与架构.md)。
@@ -128,13 +127,14 @@ docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml run -
 docker compose -f infra/docker-compose.yml exec -T renderer npm test
 cd frontend
 npm ci
+npm run test
 npm run lint
 npm run build
 cd ..
 docker compose -f infra/docker-compose.yml config --quiet
-docker compose -f infra/docker-compose.yml exec -T api python scripts/p2_live_smoke.py
-docker compose -f infra/docker-compose.yml exec -T api python scripts/p4_performance.py
 ```
+
+需要验证真实 API、任务队列或大数据量性能时，使用[启动步骤](./启动步骤.md)中的可选高级检查。
 
 ## 备份与恢复
 

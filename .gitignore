@@ -22,6 +22,11 @@ data/
 .local-quality/
 backups/
 
+# 本地架构分析与浏览器测试产物
+graphify-out/
+.tmp-chrome-profile/
+.tmp-edge-profile/
+
 # 系统文件
 .DS_Store
 Thumbs.db
