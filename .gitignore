@@ -2,6 +2,8 @@
 .env
 *.local
 .claude/
+.planning/
+tasks/
 
 # Python
 __pycache__/
