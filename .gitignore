@@ -22,6 +22,9 @@ data/
 .local-quality/
 backups/
 
+# 本地宣传文案、截图与内部操作记录
+/宣传素材/
+
 # 本地架构分析与浏览器测试产物
 graphify-out/
 .tmp-chrome-profile/
