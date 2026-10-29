@@ -103,6 +103,18 @@ def test_recommendation_run_is_explainable_versioned_idempotent_and_owner_scoped
         assert included.status_code == 200
         included_payload = included.json()
         assert included_payload["total"] == 2
+        for keyword, expected_id in [("事务", database_question["id"]), ("ACID", database_question["id"])]:
+            searched = client.get(
+                f"/api/v1/recommendation-runs/{run['id']}/items",
+                params={"q": keyword},
+            )
+            assert searched.status_code == 200
+            assert {item["questionId"] for item in searched.json()["items"]} == {expected_id}
+        no_match = client.get(
+            f"/api/v1/recommendation-runs/{run['id']}/items", params={"q": "no-such-question-xyz"}
+        )
+        assert no_match.status_code == 200
+        assert no_match.json()["total"] == 0
         mismatch_item = next(
             item for item in included_payload["items"] if item["questionId"] == answer_mismatch["id"]
         )
