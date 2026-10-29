@@ -63,6 +63,8 @@ import { AssetSourceMetadata } from './components/AssetSourceMetadata'
 import { ExtractionQualityPanel } from './components/ExtractionQualityPanel'
 import { WorkspaceNav, type WorkspaceSection } from './components/WorkspaceNav'
 import { GettingStarted } from './components/GettingStarted'
+import { ImportActions } from './components/ImportActions'
+import { WorkspaceIcon } from './components/WorkspaceIcon'
 import { UsageGuide } from './components/UsageGuide'
 import { AiAnswerPanel } from './components/AiAnswerPanel'
 import { AnswerOrigin } from './components/AnswerOrigin'
@@ -484,17 +486,19 @@ function App() {
 
   const renderAssets = () => (
     <section aria-label="资料">
-      <div className="workspace-toolbar">
+      <div className="workspace-toolbar import-heading">
         <div>
           <Typography.Title level={2}>资料导入</Typography.Title>
           <Typography.Text type="secondary">
-            支持文字、图片、PDF、Word，以及公开静态或 JavaScript 网页；文件上限 25 MiB，PDF 最多 100 页
+            把散落的面经与知识，收进自己的资料库。
           </Typography.Text>
         </div>
-        <Space wrap>
-          <Upload
-            accept=".txt,.md,.markdown,.png,.jpg,.jpeg,.pdf,.docx,.doc"
-            showUploadList={false}
+      </div>
+          <ImportActions
+            uploading={fileImport.isPending}
+            onUrl={() => setUrlImportOpen(true)}
+            onBatch={() => setBatchUrlImportOpen(true)}
+            onText={() => setImportOpen(true)}
             beforeUpload={(file) => {
               if (file.size > 25 * 1024 * 1024) {
                 messageApi.error('文件不能超过 25 MiB')
@@ -509,15 +513,11 @@ function App() {
               }
               return Upload.LIST_IGNORE
             }}
-          >
-            <Button loading={fileImport.isPending}>导入文件</Button>
-          </Upload>
-          <Button onClick={() => setUrlImportOpen(true)}>导入网页链接</Button>
-          <Button onClick={() => setBatchUrlImportOpen(true)}>批量导入链接</Button>
-          <Button type="primary" onClick={() => setImportOpen(true)}>
-            粘贴文字
-          </Button>
-        </Space>
+          />
+      <p className="import-limits">支持公开网页与 JavaScript 页面 · 文件上限 25 MiB，图片 10 MiB，PDF 100 页</p>
+      <div className="asset-list-heading">
+        <h3>已收集的资料 {assets.data && <span>{assets.data.items.length}</span>}</h3>
+        <span>打开资料，继续整理题目</span>
       </div>
       {assets.isLoading && <Skeleton active paragraph={{ rows: 5 }} />}
       {assets.isError && (
@@ -534,17 +534,19 @@ function App() {
         {assets.data?.items.map((asset) => (
           <Card
             key={asset.id}
-            hoverable
-            title={asset.title}
+            className="asset-card"
+            title={<div className="asset-card-title">
+              <span className={`asset-file-icon ${asset.sourceFormat === 'WEB_PAGE' ? 'is-link' : ''}`}><WorkspaceIcon name={asset.sourceFormat === 'WEB_PAGE' ? 'link' : 'file'} size={22} /></span>
+              <button type="button" className="asset-open-title" onClick={() => setSelectedAssetId(asset.id)}>{asset.title}</button>
+            </div>}
             extra={
               <Space size={4} wrap>
-                <Tag>{sourceLabels[asset.sourceFormat]}</Tag>
                 <Tag color={statusColors[asset.status]}>{statusLabels[asset.status]}</Tag>
               </Space>
             }
-            onClick={() => setSelectedAssetId(asset.id)}
           >
             <div className="asset-meta">
+              <Tag>{sourceLabels[asset.sourceFormat]}</Tag>
               {asset.job && (
                 <Typography.Text type="secondary">
                   {stageLabels[asset.job.stage] ?? asset.job.stage}
@@ -572,6 +574,10 @@ function App() {
                   重试解析（{asset.job!.retryCount}/3）
                 </Button>
               )}
+            </div>
+            <div className="asset-card-footer">
+              <span>原文 · 题目 · 来源</span>
+              <Button type="text" onClick={() => setSelectedAssetId(asset.id)} aria-label={`查看资料 ${asset.title}`}>查看资料 <WorkspaceIcon name="arrow" size={16} /></Button>
             </div>
           </Card>
         ))}
@@ -732,10 +738,10 @@ function App() {
       <a className="skip-link" href="#workspace-content">跳到主要内容</a>
       <header className="app-header">
         <div className="app-brand">
-          <span className="brand-mark" aria-hidden="true">问</span>
+          <span className="brand-mark" aria-hidden="true"><WorkspaceIcon name="book" size={25} /></span>
           <div>
             <Typography.Title level={1}>面经综合助手</Typography.Title>
-            <Typography.Text type="secondary">把资料整理成适合自己的复习计划</Typography.Text>
+            <Typography.Text type="secondary">你的面试准备，自成一册</Typography.Text>
           </div>
         </div>
         <div className="header-actions">
@@ -791,8 +797,8 @@ function App() {
                 className={item.id === activeCollectionId ? 'collection-item selected' : 'collection-item'}
               >
                 <button className="collection-select" aria-current={item.id === activeCollectionId ? 'true' : undefined} onClick={() => selectCollection(item.id)}>
-                  <strong title={item.name}>{item.name}</strong>
-                  <Tag>{item.purpose === 'KNOWLEDGE_BASE' ? '知识库' : '面经'}</Tag>
+                  <span className={`collection-icon ${item.purpose === 'KNOWLEDGE_BASE' ? 'is-knowledge' : ''}`}><WorkspaceIcon name={item.purpose === 'KNOWLEDGE_BASE' ? 'book' : 'folder'} size={18} /></span>
+                  <span className="collection-copy"><strong title={item.name}>{item.name}</strong><small>{item.purpose === 'KNOWLEDGE_BASE' ? '知识库' : '面经'}</small></span>
                 </button>
                 <div className="collection-actions">
                   <Popconfirm
@@ -813,15 +819,19 @@ function App() {
         </aside>
 
         <main id="workspace-content" className="content-panel" tabIndex={-1}>
+          <div className="workspace-heading">
+            <div><span className="workspace-eyebrow">我的备考空间</span><h2>资料工作台<span className="heading-punctuation">.</span></h2></div>
+            <p>积累、整理，然后从容开口。</p>
+          </div>
           <GettingStarted onImport={showImports} onOrganize={showOrganization}
             onProfile={() => navigateWorkspace('profile')} onReview={() => navigateWorkspace('review')}
             onInterview={() => navigateWorkspace('interview')} onGuide={() => setGuideOpen(true)} />
           {selectedCollection ? (
-            <>
+            <div className="collection-workspace">
               <div className="collection-context">
-                <div><Typography.Text type="secondary">资料工作台 / 当前资料库</Typography.Text>
+                <div><Typography.Text type="secondary">当前资料库</Typography.Text>
                 <Typography.Title level={2}>{selectedCollection.name}</Typography.Title></div>
-                <Tag>{selectedCollection.purpose === 'KNOWLEDGE_BASE' ? '知识库' : '面经'}</Tag>
+                <Tag className={`collection-purpose ${selectedCollection.purpose === 'KNOWLEDGE_BASE' ? 'is-knowledge' : ''}`}>{selectedCollection.purpose === 'KNOWLEDGE_BASE' ? '知识库' : '面经'}</Tag>
               </div>
               <Tabs
                 activeKey={activeTab}
@@ -831,7 +841,7 @@ function App() {
                   { key: 'questions', label: '题库', children: renderQuestions() },
                 ]}
               />
-            </>
+            </div>
           ) : (
             <div className="content-empty">
               <div className="empty-workspace-mark" aria-hidden="true">01</div>

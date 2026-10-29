@@ -1,0 +1,238 @@
+.getting-started {
+  --route-surface: #fffdf8;
+  --route-line: #e6e2d8;
+  --route-green: #27624e;
+  --route-green-soft: #e8f0e7;
+  --route-orange: #9f502f;
+  --route-orange-soft: #f8eadd;
+  --route-blue: #405c8a;
+  --route-blue-soft: #e9edf6;
+  --route-purple: #6b5084;
+  --route-purple-soft: #f0e9f4;
+  margin-bottom: 1.5rem;
+  border: 1px solid var(--route-line);
+  border-radius: 0.75rem;
+  background: var(--route-surface);
+}
+
+.getting-started-heading,
+.getting-started-title,
+.guide-heading-actions {
+  display: flex;
+  align-items: center;
+}
+
+.getting-started-heading {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  padding: 0.5rem 1rem;
+}
+
+.getting-started-title {
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.route-symbol {
+  flex: 0 0 1.25rem;
+  color: var(--route-green);
+}
+
+.getting-started h2 {
+  margin: 0;
+  color: var(--ink, #243a33);
+  font-size: 0.9375rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.getting-started-description {
+  margin-left: 0.5rem;
+  color: var(--muted, #64716b);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.guide-heading-actions {
+  gap: 0.25rem;
+}
+
+.guide-heading-actions .ant-btn {
+  min-height: 2.75rem;
+  padding-inline: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.route-toggle-icon {
+  flex: 0 0 0.875rem;
+}
+
+.getting-started-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem 0.5rem 0.75rem;
+}
+
+.getting-started-steps li {
+  --step-color: var(--route-green);
+  --step-surface: var(--route-green-soft);
+  min-width: 0;
+  padding-inline: 0.5rem;
+}
+
+.getting-started-steps li + li {
+  border-left: 1px solid var(--route-line);
+}
+
+.getting-started-steps li:nth-child(2) {
+  --step-color: var(--route-orange);
+  --step-surface: var(--route-orange-soft);
+}
+
+.getting-started-steps li:nth-child(3) {
+  --step-color: var(--route-blue);
+  --step-surface: var(--route-blue-soft);
+}
+
+.getting-started-steps li:nth-child(4) {
+  --step-color: var(--route-purple);
+  --step-surface: var(--route-purple-soft);
+}
+
+.getting-started-steps button {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.75rem 0.5rem;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.getting-started-steps button:hover,
+.getting-started-steps button:active {
+  background: var(--step-surface);
+}
+
+.getting-started-steps button:focus-visible,
+.getting-started .ant-btn:focus-visible {
+  outline: 2px solid var(--brand, #27624e);
+  outline-offset: 2px;
+}
+
+.getting-started .step-number {
+  display: grid;
+  flex: 0 0 1.75rem;
+  place-items: center;
+  height: 1.75rem;
+  margin-top: 0.125rem;
+  border-radius: 0.375rem;
+  background: var(--step-surface);
+  color: var(--step-color);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.getting-started-steps strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--ink, #243a33);
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.getting-started-steps small {
+  display: block;
+  color: var(--muted, #64716b);
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+
+.getting-started-shortcut {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  padding: 0.25rem 1rem;
+  border-top: 1px solid var(--route-line);
+  color: var(--muted, #64716b);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
+.getting-started-shortcut .ant-btn {
+  min-height: 2.75rem;
+  padding-inline: 0;
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 72rem) {
+  .getting-started-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem 0;
+  }
+
+  .getting-started-steps li:nth-child(3) {
+    border-left: 0;
+  }
+}
+
+@media (max-width: 36rem) {
+  .getting-started {
+    margin-bottom: 1.25rem;
+  }
+
+  .getting-started-heading {
+    padding: 0.5rem 0.75rem;
+    gap: 0.25rem;
+  }
+
+  .getting-started-title {
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+  }
+
+  .getting-started-description {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .guide-heading-actions {
+    margin-left: auto;
+  }
+
+  .getting-started-steps {
+    padding-inline: 0.25rem;
+  }
+
+  .getting-started-steps li {
+    padding-inline: 0.25rem;
+  }
+
+  .getting-started-steps button {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+
+  .getting-started-shortcut {
+    padding: 0.5rem 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .getting-started-steps button {
+    transition: none;
+  }
+}

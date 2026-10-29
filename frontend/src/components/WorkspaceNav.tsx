@@ -16,11 +16,11 @@ interface Props {
 export function WorkspaceNav({ active, onNavigate }: Props) {
   return <nav className="workspace-nav" aria-label="主要功能">
     {entries.map((entry) => <button key={entry.key} type="button"
-      className={`workspace-nav-item${active === entry.key ? ' is-active' : ''}`}
+      className={`workspace-nav-item nav-${entry.key}${active === entry.key ? ' is-active' : ''}`}
       aria-current={active === entry.key ? 'page' : undefined}
       onClick={() => onNavigate(entry.key)}>
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={entry.icon} /></svg>
-      <span><strong>{entry.title}</strong><small>{entry.detail}</small></span>
+      <span className="nav-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d={entry.icon} /></svg></span>
+      <span className="nav-copy"><strong>{entry.title}</strong><small>{entry.detail}</small></span>
     </button>)}
   </nav>
 }

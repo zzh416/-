@@ -1,0 +1,171 @@
+/* Workspace surfaces stay quiet; color identifies actions and material types. */
+.workspace-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.workspace-eyebrow {
+  color: var(--muted);
+  font-size: .75rem;
+  letter-spacing: .12em;
+}
+
+.workspace-heading h2 {
+  margin: .375rem 0 0;
+  color: var(--ink);
+  font-size: 1.75rem;
+  font-weight: 650;
+  letter-spacing: -.04em;
+  line-height: 1.4;
+}
+
+.heading-punctuation { color: var(--orange); margin-left: .25rem; }
+.workspace-heading p { margin: 0 0 .25rem; color: var(--muted); font-size: .875rem; }
+
+.collection-workspace {
+  min-width: 0;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: .75rem;
+  background: var(--surface);
+}
+
+.collection-purpose.ant-tag { padding: .25rem .625rem; border: 0; color: var(--orange); background: var(--orange-soft); }
+.collection-purpose.is-knowledge.ant-tag { color: var(--blue); background: var(--blue-soft); }
+.collection-workspace > .ant-tabs > .ant-tabs-nav { margin-bottom: 1.5rem; }
+.collection-workspace .import-heading { margin-bottom: 1rem; }
+
+.import-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .75rem;
+}
+
+.import-actions > *, .import-actions .ant-upload, .import-actions .ant-upload-select { min-width: 0; width: 100%; height: 100%; }
+.import-actions .ant-upload-wrapper { display: block; }
+
+.import-action {
+  --action-color: var(--brand);
+  --action-soft: var(--brand-soft);
+  display: flex;
+  position: relative;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  min-height: 8.5rem;
+  padding: 1.125rem;
+  border: 1px solid var(--line);
+  border-radius: .625rem;
+  background: #fcfdfa;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.import-action-link { --action-color: var(--blue); --action-soft: var(--blue-soft); }
+.import-action-batch { --action-color: var(--purple); --action-soft: var(--purple-soft); }
+.import-action-text { --action-color: var(--orange); --action-soft: var(--orange-soft); }
+.import-action:hover, .import-action:active { background: var(--action-soft); border-color: var(--action-color); }
+.import-action:disabled { cursor: wait; opacity: .65; }
+.import-action-icon { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; flex: 0 0 auto; border-radius: .5rem; color: var(--action-color); background: var(--action-soft); }
+.import-action-copy { display: grid; gap: .25rem; min-width: 0; }
+.import-action-copy strong { color: var(--ink); font-size: .9375rem; font-weight: 600; }
+.import-action-copy small { color: var(--muted); font-size: .75rem; line-height: 1.6; }
+.import-action-arrow { position: absolute; right: 1rem; top: 1.625rem; color: var(--action-color); }
+.import-limits { margin: .75rem 0 2rem; color: var(--muted); font-size: .75rem; line-height: 1.7; }
+
+.asset-list-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: .5rem; margin-bottom: 1rem; }
+.asset-list-heading h3 { margin: 0; color: var(--ink); font-size: 1rem; font-weight: 600; }
+.asset-list-heading h3 span { margin-left: .25rem; padding: .125rem .5rem; border-radius: .25rem; color: var(--brand); background: var(--brand-soft); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.asset-list-heading > span { color: var(--muted); font-size: .75rem; }
+.asset-card.ant-card { min-width: 0; border-color: var(--line); border-radius: .625rem; }
+.asset-card.ant-card .ant-card-head { padding: 1rem 1rem 0; border-bottom: 0; min-height: 0; }
+.asset-card .ant-card-head-wrapper { align-items: flex-start; gap: .5rem; }
+.asset-card .ant-card-head-title { overflow: visible; white-space: normal; }
+.asset-card .ant-card-extra { flex: 0 0 auto; padding-top: .375rem; }
+.asset-card.ant-card .ant-card-body { padding: .875rem 1rem 0; }
+.asset-card-title { display: flex; align-items: flex-start; gap: .75rem; min-width: 0; }
+.asset-file-icon { display: grid; flex: 0 0 2.5rem; place-items: center; height: 3rem; border: 1px solid #e0e6d8; border-radius: .25rem .75rem .25rem .25rem; color: var(--brand); background: #f0f4e9; }
+.asset-file-icon.is-link { color: var(--blue); border-color: #d9e3ef; background: var(--blue-soft); }
+.asset-open-title { min-width: 0; min-height: 2.75rem; padding: .375rem 0; border: 0; background: transparent; color: var(--ink); font-weight: 600; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.asset-open-title:hover { color: var(--brand); text-decoration: underline; text-underline-offset: .25rem; }
+.asset-card .asset-meta { gap: .375rem; font-size: .8125rem; }
+.asset-card .asset-meta .ant-typography { color: var(--muted); font-size: .8125rem; }
+.asset-card .asset-meta .ant-typography-danger { color: #be4b46; }
+.asset-card-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 1rem; padding: .375rem 0; border-top: 1px solid var(--line); gap: .25rem; }
+.asset-card-footer > span { color: var(--muted); font-size: .75rem; }
+.asset-card-footer .ant-btn { min-height: 2.75rem; padding-inline: .5rem; color: var(--brand); font-size: .8125rem; }
+.asset-card-footer .ant-btn svg { margin-left: .25rem; }
+
+.import-action:focus-visible, .asset-open-title:focus-visible, .import-actions .ant-upload:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* Drawers and reading surfaces share the same paper-and-ink palette. */
+.ant-drawer .ant-drawer-header { background: #fffefa; }
+.ant-drawer .ant-drawer-body { background: var(--canvas); }
+.ant-drawer .ant-drawer-title { color: var(--ink); }
+.ant-drawer .ant-drawer-close { min-width: 2rem; min-height: 2rem; }
+.recommendation-summary > div { border-color: var(--line); background: var(--surface); }
+.recommendation-summary > div:first-child { background: var(--brand-soft); }
+.recommendation-summary > div:nth-child(3) { background: var(--blue-soft); }
+.recommendation-summary > div:nth-child(4) { background: var(--gold-soft); }
+.recommendation-summary strong { font-variant-numeric: tabular-nums; }
+.source-content, .skill-evidence { background: #f0f2ec; }
+.question-controls .ant-radio-group { max-width: 100%; }
+
+@media (min-width: 56.01rem) and (max-width: 76rem) {
+  .content-panel { padding-inline: 1.5rem; }
+  .import-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .import-action { min-height: 5.75rem; flex-direction: row; align-items: center; gap: .75rem; padding-right: 2.25rem; }
+  .import-action-arrow { top: 2.25rem; right: .75rem; }
+}
+
+@media (max-width: 56rem) {
+  .workspace-heading { margin-top: .5rem; }
+  .workspace-heading h2 { font-size: 1.5rem; }
+  .import-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .import-action { flex-direction: row; align-items: center; min-height: 5.5rem; gap: .75rem; padding: 1rem 2.25rem 1rem 1rem; }
+  .import-action-arrow { top: 2.25rem; right: .75rem; }
+}
+
+@media (max-width: 36rem) {
+  .app-header { padding: .875rem 1rem; align-items: stretch; }
+  .workspace-nav-item { padding-inline: 0; }
+  .service-state { padding: .25rem .5rem; font-size: .75rem; }
+  .app-brand .ant-typography-secondary { font-size: .75rem; }
+  .workspace-heading { gap: .5rem; align-items: flex-start; flex-direction: column; margin-bottom: 1rem; }
+  .workspace-heading p { font-size: .8125rem; }
+  .collection-workspace { padding: 1rem; }
+  .workspace-toolbar > div:first-child { flex-basis: auto; }
+  .collection-context { align-items: flex-start; }
+  .collection-context > div { min-width: 0; }
+  .collection-context h2.ant-typography { font-size: 1.25rem; }
+  .import-actions { gap: .5rem; }
+  .import-action { min-height: 8rem; flex-direction: column; align-items: flex-start; gap: .75rem; padding: .75rem; }
+  .import-action-copy strong { font-size: .875rem; }
+  .import-action-copy small { font-size: .75rem; }
+  .import-action-arrow { top: 1.375rem; right: .5rem; }
+  .asset-list-heading { margin-bottom: .75rem; }
+  .asset-card .ant-card-head-wrapper { flex-wrap: wrap; }
+  .asset-card .ant-card-extra { margin-inline-start: 0; padding-top: 0; }
+  .asset-open-title { font-size: .9375rem; }
+  .question-controls .ant-radio-group { display: flex; flex-wrap: wrap; }
+  .question-controls .ant-radio-button-wrapper { height: auto; min-height: 2.75rem; line-height: 2.75rem; }
+  .ant-drawer .ant-drawer-body { padding: 1rem; }
+  .ant-drawer .ant-drawer-close { min-width: 2.75rem; min-height: 2.75rem; }
+  .ant-pagination { display: flex; flex-wrap: wrap; row-gap: .5rem; }
+}
+
+@media (max-width: 21rem) {
+  .workspace-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .import-action { transition: none; }
+}
