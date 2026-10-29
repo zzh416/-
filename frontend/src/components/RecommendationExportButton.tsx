@@ -47,7 +47,7 @@ export function RecommendationExportButton({ run, notify }: Props) {
         confirmLoading={download.isPending}
         cancelButtonProps={{ disabled: download.isPending }}
         closable={!download.isPending}
-        maskClosable={!download.isPending}
+        mask={{ closable: !download.isPending }}
         keyboard={!download.isPending}
         onCancel={() => setOpen(false)}
         onOk={() => download.mutate()}

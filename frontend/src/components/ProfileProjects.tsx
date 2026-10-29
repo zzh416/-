@@ -95,7 +95,7 @@ export function ProfileProjects({ profile, disabled, notify }: Props) {
       )}
       <Modal title={editing === 'new' ? '添加项目' : '编辑项目'} open={editing !== null} onCancel={() => setEditing(null)}
         onOk={() => form.submit()} okText="保存项目" cancelText="取消" confirmLoading={save.isPending}
-        cancelButtonProps={{ disabled: save.isPending }} closable={!save.isPending} maskClosable={!save.isPending} keyboard={!save.isPending}>
+        cancelButtonProps={{ disabled: save.isPending }} closable={!save.isPending} mask={{ closable: !save.isPending }} keyboard={!save.isPending}>
         <Form form={form} layout="vertical" onFinish={(value) => save.mutate(value)}>
           <Form.Item name="name" label="项目名称" rules={[{ required: true, whitespace: true, message: '请输入项目名称' }]}>
             <Input maxLength={120} disabled={save.isPending} />
